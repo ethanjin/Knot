@@ -74,7 +74,7 @@ class SFNETunnelProviderManager:NETunnelProviderManager {
             
             var configInfo = [String:Any]()
             configInfo["App"] = bId
-//            configInfo["PluginType"] = "Lojii.NIO1901"
+//            configInfo["PluginType"] = "pers.ethanjin.NIO1901"
 //            configInfo["port"] = 8034
 //            configInfo["server"] = "127.0.0.1:8034"
 //            configInfo["ip"] = "10.8.0.2"
@@ -84,7 +84,7 @@ class SFNETunnelProviderManager:NETunnelProviderManager {
             
             let config = NETunnelProviderProtocol()
             config.providerConfiguration = configInfo
-            config.providerBundleIdentifier = "Lojii.NIO1901.PacketTunnel"
+            config.providerBundleIdentifier = "pers.ethanjin.NIO1901.PacketTunnel"
             config.serverAddress = "Knot.Local"//"240.84.1.24"
             
             let manager = SFNETunnelProviderManager()

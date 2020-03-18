@@ -17,7 +17,7 @@
 	</array>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)Lojii.NIO1901</string>
+		<string>$(AppIdentifierPrefix)pers.ethanjin.NIO1901</string>
 	</array>
 </dict>
 </plist>

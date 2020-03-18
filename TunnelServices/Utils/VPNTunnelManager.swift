@@ -84,7 +84,7 @@ public class VPNTunnelManager: NSObject {
             configInfo["dns"] = "8.8.8.8,8.4.4.4"
             
             let tunnelProviderProtocol = NETunnelProviderProtocol()
-            tunnelProviderProtocol.providerBundleIdentifier = "Lojii.NIO1901.PacketTunnel"
+            tunnelProviderProtocol.providerBundleIdentifier = "pers.ethanjin.NIO1901.PacketTunnel"
             tunnelProviderProtocol.providerConfiguration = configInfo
             tunnelProviderProtocol.serverAddress = "127.0.0.1:8034"
             
