@@ -3647,9 +3647,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = NIO1901/NIO1901.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Distribution";
-				CODE_SIGN_STYLE = Manual;
-				DEVELOPMENT_TEAM = 73QYWNHB5F;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = B76PGC4MEK;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
@@ -3663,7 +3663,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = pers.ethanjin.NIO1901;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "NIO2019发布描述文件";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_ENABLE_BATCH_MODE = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "NIO1901/NIO1901-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -3701,9 +3701,9 @@
 			baseConfigurationReference = E59E2F5FD1342D168E70FB66 /* Pods-PacketTunnel.release.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Distribution";
-				CODE_SIGN_STYLE = Manual;
-				DEVELOPMENT_TEAM = 73QYWNHB5F;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = B76PGC4MEK;
 				HEADER_SEARCH_PATHS = "\"$(SRCROOT)/TunnelServices/NIO/CNIOBoringSSL/CNIOBoringSSL/include\"";
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
@@ -3714,7 +3714,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = pers.ethanjin.NIO1901.PacketTunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "NIO2019Tunnel发布描述文件";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
