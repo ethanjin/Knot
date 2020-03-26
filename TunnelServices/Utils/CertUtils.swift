@@ -48,7 +48,7 @@ public class CertUtils: NSObject {
         return pkey
     }
     
-    public static func generateCert222(host:String, rsaKey:NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
+    public static func generateCert_bk(host:String, rsaKey:NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
 //        if let result = shared.certPool?[host] {
 //            return result
 //        }
@@ -111,7 +111,7 @@ public class CertUtils: NSObject {
         return cert
     }
     
-    public static func generateCert(host: String, rsaKey: NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
+    public static func generateCert2(host: String, rsaKey: NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
         let pkey: UnsafeMutablePointer<EVP_PKEY> = rsaKey._ref.assumingMemoryBound(to: EVP_PKEY.self)
         let x = CNIOBoringSSL_X509_new()!
         CNIOBoringSSL_X509_set_version(x, 2)
@@ -216,5 +216,38 @@ public class CertUtils: NSObject {
         }!
         CNIOBoringSSL_X509_add_ext(x509, ext, -1)
         CNIOBoringSSL_X509_EXTENSION_free(ext)
+    }
+    
+    public static func generateCert(host: String, rsaKey: NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
+        let samplePemCert = """
+        -----BEGIN CERTIFICATE-----
+        MIIEJjCCAw6gAwIBAgIJAJxU3n3s3QxiMA0GCSqGSIb3DQEBCwUAMF8xCzAJBgNV
+        BAYTAkNOMRAwDgYDVQQIDAdCZWlKaW5nMRAwDgYDVQQHDAdCZWlKaW5nMQ0wCwYD
+        VQQKDARURVNUMQwwCgYDVQQLDAN3ZWIxDzANBgNVBAMMBkNNQl9DQTAeFw0yMDAz
+        MjYwMjE3MjhaFw0yMjA2MjgwMjE3MjhaMGUxCzAJBgNVBAYTAkNOMRAwDgYDVQQI
+        DAdCZWlKaW5nMRAwDgYDVQQHDAdCZWlKaW5nMQ0wCwYDVQQKDARURVNUMQwwCgYD
+        VQQLDAN3ZWIxFTATBgNVBAMMDGNtYmNoaW5hLmNvbTCCASIwDQYJKoZIhvcNAQEB
+        BQADggEPADCCAQoCggEBAKVBH6ypauyR3+eU1nAN6vc0tg4Gqi7H7NU0pwu5zrzJ
+        tebVpaDhwgy0s4i+gPHS6Uhfuv9Lymnt0JM9oxfGsLFVEe0uBvGNdYfgsa86cEOc
+        Z/j3LB9pa0MK5mq4BlBlEdJeVgujUz3rnqfkHscAyUT5UmddV23T+k9v0XmTojqo
+        w49rdc9YNaUABLoU01x+Y4o4yyNNOy1BIs14pFH47jasn9BYim27ZvJn02Px76B+
+        aoBasZlRj+Y8rrFDOdNSeaHM5X8nVAr+fbI8xjrbpok1PbUKiXZwYcypb5ydqaA2
+        SV3i3TWgTmfaAcORFFzcLi3dTXAfh379PE35bAqZF0UCAwEAAaOB3jCB2zB5BgNV
+        HSMEcjBwoWOkYTBfMQswCQYDVQQGEwJDTjEQMA4GA1UECAwHQmVpSmluZzEQMA4G
+        A1UEBwwHQmVpSmluZzENMAsGA1UECgwEVEVTVDEMMAoGA1UECwwDd2ViMQ8wDQYD
+        VQQDDAZDTUJfQ0GCCQCBerwQxf0eOjAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAd
+        BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwkwJwYDVR0RBCAwHoIMY21iY2hp
+        bmEuY29tgg4qLmNtYmNoaW5hLmNvbTANBgkqhkiG9w0BAQsFAAOCAQEAfQ+8ELNH
+        agqsaEtzeRdtInccJHoZ9eKAfnFnC3pi4sVXQ+JkcAR2cKMv3RuG5ODwcH+C//6y
+        r29OiMV0EL89gPyUFSWgk+CFa57Sb7rnKO1iyGD1kA6MgSckfAMDHO1B5PZ+0Zb+
+        K5IjuNsIcOFi7YuQpQleJjzDn9RGln0uW+4RzgBGqL2myoAJFlrx2MLBcle2sHld
+        BYWbCsbaTbdcLX8XMUCWI6gNnyq5NgDeIHOWxLJ6xtLyBPEkNnm2N3vR9KcuwFrq
+        p48JYkwdW/h2rY6kfcP4eEj3JtnwJZE4/BJG5QKPLHVxaUKRZ8fPgT/tiPJmIMTi
+        Vy5/Mohl+eoRLA==
+        -----END CERTIFICATE-----
+        """
+        
+        let sslCertificate = try! NIOSSLCertificate(bytes: Array(samplePemCert.utf8), format: .pem)
+        return sslCertificate
     }
 }
