@@ -48,7 +48,7 @@ public class CertUtils: NSObject {
         return pkey
     }
     
-    public static func generateCert_bk(host:String, rsaKey:NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
+    public static func generateCert(host:String, rsaKey:NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
 //        if let result = shared.certPool?[host] {
 //            return result
 //        }
@@ -85,7 +85,7 @@ public class CertUtils: NSObject {
         var now = time(nil)
         CNIOBoringSSL_ASN1_TIME_set(notBefore, now)
         let notAfter = CNIOBoringSSL_ASN1_TIME_new()!
-        now += 86400*365
+        now += 86400 * 365
         CNIOBoringSSL_ASN1_TIME_set(notAfter, now)
         CNIOBoringSSL_X509_set_notBefore(crt, notBefore)
         CNIOBoringSSL_X509_set_notAfter(crt, notAfter)
@@ -96,6 +96,13 @@ public class CertUtils: NSObject {
         let reqPubKey = CNIOBoringSSL_X509_REQ_get_pubkey(req)
         CNIOBoringSSL_X509_set_pubkey(crt, reqPubKey)
         CNIOBoringSSL_EVP_PKEY_free(reqPubKey)
+        
+        // 满足iOS13要求. See https://support.apple.com/en-us/HT210176
+        addExtension(x509: crt!, nid: NID_basic_constraints, value: "critical,CA:FALSE")
+        addExtension(x509: crt!, nid: NID_ext_key_usage, value: "serverAuth,OCSPSigning")
+        addExtension(x509: crt!, nid: NID_subject_key_identifier, value: "hash")
+        addExtension(x509: crt!, nid: NID_subject_alt_name, value: "DNS:" + host)
+        
         /* Now perform the actual signing with the CA. */
         CNIOBoringSSL_X509_sign(crt, caPriKey, CNIOBoringSSL_EVP_sha256())
         CNIOBoringSSL_X509_REQ_free(req)
@@ -110,102 +117,6 @@ public class CertUtils: NSObject {
         CNIOBoringSSL_X509_free(crt!)
         return cert
     }
-    
-    public static func generateCert2(host: String, rsaKey: NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
-        let pkey: UnsafeMutablePointer<EVP_PKEY> = rsaKey._ref.assumingMemoryBound(to: EVP_PKEY.self)
-        let x = CNIOBoringSSL_X509_new()!
-        CNIOBoringSSL_X509_set_version(x, 2)
-
-        // NB: X509_set_serialNumber uses an internal copy of the ASN1_INTEGER, so this is
-        // safe, there will be no use-after-free.
-        var serial = randomSerialNumber()
-        CNIOBoringSSL_X509_set_serialNumber(x, &serial)
-        
-        let notBefore = CNIOBoringSSL_ASN1_TIME_new()!
-        var now = time(nil)
-        CNIOBoringSSL_ASN1_TIME_set(notBefore, now)
-        CNIOBoringSSL_X509_set_notBefore(x, notBefore)
-        CNIOBoringSSL_ASN1_TIME_free(notBefore)
-        
-        now += 60 * 60  // Give ourselves an hour
-        let notAfter = CNIOBoringSSL_ASN1_TIME_new()!
-        CNIOBoringSSL_ASN1_TIME_set(notAfter, now)
-        CNIOBoringSSL_X509_set_notAfter(x, notAfter)
-        CNIOBoringSSL_ASN1_TIME_free(notAfter)
-        
-        CNIOBoringSSL_X509_set_pubkey(x, pkey)
-        
-        let commonName = host
-        let name = CNIOBoringSSL_X509_get_subject_name(x)
-        commonName.withCString { (pointer: UnsafePointer<Int8>) -> Void in
-            pointer.withMemoryRebound(to: UInt8.self, capacity: commonName.lengthOfBytes(using: .utf8)) { (pointer: UnsafePointer<UInt8>) -> Void in
-                CNIOBoringSSL_X509_NAME_add_entry_by_NID(name,
-                                                         NID_commonName,
-                                                         MBSTRING_UTF8,
-                                                         UnsafeMutablePointer(mutating: pointer),
-                                                         CInt(commonName.lengthOfBytes(using: .utf8)),
-                                                         -1,
-                                                         0)
-            }
-        }
-        CNIOBoringSSL_X509_set_issuer_name(x, name)
-        
-        //增加CA
-        CNIOBoringSSL_X509_set_issuer_name(x, CNIOBoringSSL_X509_get_subject_name(caCert._ref.assumingMemoryBound(to: X509.self)))
-        
-        addExtension(x509: x, nid: NID_basic_constraints, value: "critical,CA:FALSE")
-        addExtension(x509: x, nid: NID_ext_key_usage, value: "serverAuth,OCSPSigning")
-        addExtension(x509: x, nid: NID_subject_key_identifier, value: "hash")
-        addExtension(x509: x, nid: NID_subject_alt_name, value: "DNS:localhost")
-        
-        CNIOBoringSSL_X509_sign(x, pkey, CNIOBoringSSL_EVP_sha256())
-        
-        return NIOSSLCertificate.fromUnsafePointer(takingOwnership: x)
-    }
-
-    // This function generates a random number suitable for use in an X509
-    // serial field. This needs to be a positive number less than 2^159
-    // (such that it will fit into 20 ASN.1 bytes).
-    // This also needs to be portable across operating systems, and the easiest
-    // way to do that is to use either getentropy() or read from urandom. Sadly
-    // we need to support old Linuxes which may not possess getentropy as a syscall
-    // (and definitely don't support it in glibc), so we need to read from urandom.
-    // In the future we should just use getentropy and be happy.
-    public static func randomSerialNumber() -> ASN1_INTEGER {
-        let bytesToRead = 20
-        let fd = open("/dev/urandom", O_RDONLY)
-        precondition(fd != -1)
-        defer {
-            close(fd)
-        }
-
-        var readBytes = Array.init(repeating: UInt8(0), count: bytesToRead)
-        let readCount = readBytes.withUnsafeMutableBytes {
-            return read(fd, $0.baseAddress, bytesToRead)
-        }
-        precondition(readCount == bytesToRead)
-
-        // Our 20-byte number needs to be converted into an integer. This is
-        // too big for Swift's numbers, but BoringSSL can handle it fine.
-        let bn = CNIOBoringSSL_BN_new()
-        defer {
-            CNIOBoringSSL_BN_free(bn)
-        }
-        
-        _ = readBytes.withUnsafeBufferPointer {
-            CNIOBoringSSL_BN_bin2bn($0.baseAddress, $0.count, bn)
-        }
-
-        // We want to bitshift this right by 1 bit to ensure it's smaller than
-        // 2^159.
-        CNIOBoringSSL_BN_rshift1(bn, bn)
-
-        // Now we can turn this into our ASN1_INTEGER.
-        var asn1int = ASN1_INTEGER()
-        CNIOBoringSSL_BN_to_ASN1_INTEGER(bn, &asn1int)
-
-        return asn1int
-    }
 
     public static func addExtension(x509: UnsafeMutablePointer<X509>, nid: CInt, value: String) {
         var extensionContext = X509V3_CTX()
@@ -216,38 +127,5 @@ public class CertUtils: NSObject {
         }!
         CNIOBoringSSL_X509_add_ext(x509, ext, -1)
         CNIOBoringSSL_X509_EXTENSION_free(ext)
-    }
-    
-    public static func generateCert(host: String, rsaKey: NIOSSLPrivateKey, caKey: NIOSSLPrivateKey, caCert: NIOSSLCertificate) -> NIOSSLCertificate {
-        let samplePemCert = """
-        -----BEGIN CERTIFICATE-----
-        MIIEJjCCAw6gAwIBAgIJAJxU3n3s3QxiMA0GCSqGSIb3DQEBCwUAMF8xCzAJBgNV
-        BAYTAkNOMRAwDgYDVQQIDAdCZWlKaW5nMRAwDgYDVQQHDAdCZWlKaW5nMQ0wCwYD
-        VQQKDARURVNUMQwwCgYDVQQLDAN3ZWIxDzANBgNVBAMMBkNNQl9DQTAeFw0yMDAz
-        MjYwMjE3MjhaFw0yMjA2MjgwMjE3MjhaMGUxCzAJBgNVBAYTAkNOMRAwDgYDVQQI
-        DAdCZWlKaW5nMRAwDgYDVQQHDAdCZWlKaW5nMQ0wCwYDVQQKDARURVNUMQwwCgYD
-        VQQLDAN3ZWIxFTATBgNVBAMMDGNtYmNoaW5hLmNvbTCCASIwDQYJKoZIhvcNAQEB
-        BQADggEPADCCAQoCggEBAKVBH6ypauyR3+eU1nAN6vc0tg4Gqi7H7NU0pwu5zrzJ
-        tebVpaDhwgy0s4i+gPHS6Uhfuv9Lymnt0JM9oxfGsLFVEe0uBvGNdYfgsa86cEOc
-        Z/j3LB9pa0MK5mq4BlBlEdJeVgujUz3rnqfkHscAyUT5UmddV23T+k9v0XmTojqo
-        w49rdc9YNaUABLoU01x+Y4o4yyNNOy1BIs14pFH47jasn9BYim27ZvJn02Px76B+
-        aoBasZlRj+Y8rrFDOdNSeaHM5X8nVAr+fbI8xjrbpok1PbUKiXZwYcypb5ydqaA2
-        SV3i3TWgTmfaAcORFFzcLi3dTXAfh379PE35bAqZF0UCAwEAAaOB3jCB2zB5BgNV
-        HSMEcjBwoWOkYTBfMQswCQYDVQQGEwJDTjEQMA4GA1UECAwHQmVpSmluZzEQMA4G
-        A1UEBwwHQmVpSmluZzENMAsGA1UECgwEVEVTVDEMMAoGA1UECwwDd2ViMQ8wDQYD
-        VQQDDAZDTUJfQ0GCCQCBerwQxf0eOjAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAd
-        BgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwkwJwYDVR0RBCAwHoIMY21iY2hp
-        bmEuY29tgg4qLmNtYmNoaW5hLmNvbTANBgkqhkiG9w0BAQsFAAOCAQEAfQ+8ELNH
-        agqsaEtzeRdtInccJHoZ9eKAfnFnC3pi4sVXQ+JkcAR2cKMv3RuG5ODwcH+C//6y
-        r29OiMV0EL89gPyUFSWgk+CFa57Sb7rnKO1iyGD1kA6MgSckfAMDHO1B5PZ+0Zb+
-        K5IjuNsIcOFi7YuQpQleJjzDn9RGln0uW+4RzgBGqL2myoAJFlrx2MLBcle2sHld
-        BYWbCsbaTbdcLX8XMUCWI6gNnyq5NgDeIHOWxLJ6xtLyBPEkNnm2N3vR9KcuwFrq
-        p48JYkwdW/h2rY6kfcP4eEj3JtnwJZE4/BJG5QKPLHVxaUKRZ8fPgT/tiPJmIMTi
-        Vy5/Mohl+eoRLA==
-        -----END CERTIFICATE-----
-        """
-        
-        let sslCertificate = try! NIOSSLCertificate(bytes: Array(samplePemCert.utf8), format: .pem)
-        return sslCertificate
     }
 }
