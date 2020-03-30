@@ -18,7 +18,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "../include/CNIOAtomics.h"
+#include "CNIOAtomics.h"
 #include "cpp_magic.h"
 
 #define MAKE(type) /*
