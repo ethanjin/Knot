@@ -10,7 +10,6 @@ import NetworkExtension
 import TunnelServices
 //import AxLogger
 import Reachability
-import Bugly
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     
@@ -32,8 +31,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         
         pendingStartCompletion = completionHandler
-        Bugly.start(withAppId: "0519d95ff6")
-        Bugly.setUserValue("NetworkExtension", forKey: "App")
 //        // 正常启动
         if StartInExtension {
             guard let server = MitmService.prepare() else {

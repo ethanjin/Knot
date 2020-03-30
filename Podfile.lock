@@ -1,5 +1,4 @@
 PODS:
-  - Bugly (2.5.2)
   - CocoaAsyncSocket (7.6.4)
   - FileBrowser (1.0.0)
   - Highlightr (2.1.0)
@@ -22,7 +21,6 @@ PODS:
     - YYImage
 
 DEPENDENCIES:
-  - Bugly
   - CocoaAsyncSocket
   - FileBrowser
   - Highlightr
@@ -36,7 +34,6 @@ DEPENDENCIES:
 
 SPEC REPOS:
   https://github.com/CocoaPods/Specs.git:
-    - Bugly
     - CocoaAsyncSocket
     - FileBrowser
     - Highlightr
@@ -49,7 +46,6 @@ SPEC REPOS:
     - YYWebImage
 
 SPEC CHECKSUMS:
-  Bugly: dbac48b55ad469a97cc4321045cd50df8f63d44f
   CocoaAsyncSocket: 694058e7c0ed05a9e217d1b3c7ded962f4180845
   FileBrowser: 2ca91ff61c9ea09665eb3b8f9e64a7a77e66a0bf
   Highlightr: 595f3e100737c8de41113385da8bd0b5b65212c6
@@ -61,6 +57,6 @@ SPEC CHECKSUMS:
   YYImage: 1e1b62a9997399593e4b9c4ecfbbabbf1d3f3b54
   YYWebImage: 5f7f36aee2ae293f016d418c7d6ba05c4863e928
 
-PODFILE CHECKSUM: 3f4a8fc10b7b4e794d8f59101e83344b217ec53e
+PODFILE CHECKSUM: cd40926f35eeb913de8e4815993fca2778d9fa54
 
 COCOAPODS: 1.9.0

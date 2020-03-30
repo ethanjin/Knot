@@ -14,12 +14,10 @@ target 'NIO1901' do
     pod 'FileBrowser'
     pod 'CocoaAsyncSocket'
     pod 'ReachabilitySwift'
-    pod 'Bugly'
 end
 
 target 'PacketTunnel' do
     pod 'ReachabilitySwift'
-    pod 'Bugly'
 end
 
 target 'TunnelServices' do
