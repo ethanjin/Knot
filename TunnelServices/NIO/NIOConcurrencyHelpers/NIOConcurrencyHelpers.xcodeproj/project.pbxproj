@@ -11,6 +11,7 @@
 		564965AC238BDCF90089BC4D /* CNIOAtomics.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 564965AA238BDCF90089BC4D /* CNIOAtomics.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5694D8D4238BD2520053EF0F /* atomics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5694D8D2238BD2520053EF0F /* atomics.swift */; };
 		5694D8D5238BD2520053EF0F /* lock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5694D8D3238BD2520053EF0F /* lock.swift */; };
+		D2F4863F2431CE6E008BEEC2 /* NIOAtomic.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F4863E2431CE6E008BEEC2 /* NIOAtomic.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -34,6 +35,7 @@
 		5694D8D2238BD2520053EF0F /* atomics.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = atomics.swift; sourceTree = "<group>"; };
 		5694D8D3238BD2520053EF0F /* lock.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = lock.swift; sourceTree = "<group>"; };
 		5694D900238BD4190053EF0F /* libCNIOAtomics.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libCNIOAtomics.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2F4863E2431CE6E008BEEC2 /* NIOAtomic.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NIOAtomic.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +70,7 @@
 		5694D8C9238BD23F0053EF0F /* NIOConcurrencyHelpers */ = {
 			isa = PBXGroup;
 			children = (
+				D2F4863E2431CE6E008BEEC2 /* NIOAtomic.swift */,
 				5694D8D2238BD2520053EF0F /* atomics.swift */,
 				5694D8D3238BD2520053EF0F /* lock.swift */,
 				5694D8CB238BD23F0053EF0F /* Info.plist */,
@@ -166,6 +169,7 @@
 			files = (
 				5694D8D5238BD2520053EF0F /* lock.swift in Sources */,
 				5694D8D4238BD2520053EF0F /* atomics.swift in Sources */,
+				D2F4863F2431CE6E008BEEC2 /* NIOAtomic.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
