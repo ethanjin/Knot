@@ -144,15 +144,6 @@ class MainViewController: BaseViewController {
         profileStatus()
         //
         historyView.refreshList(vpnIsOpen: _vpnStatus == .connected)
-        
-        if let agree = UserDefaults.standard.string(forKey: ISAGREE) {
-            if agree == "yes" {}
-        }else{
-            let wvc = WebViewController()
-            wvc.type = "TCF"
-            wvc.modalPresentationStyle = .fullScreen
-            present(wvc, animated: false, completion: nil)
-        }
     }
     
     override func viewWillAppear(_ animated: Bool) {

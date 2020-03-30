@@ -140,32 +140,12 @@ extension SettingViewController:UITableViewDelegate,UITableViewDataSource {
             if indexPath.row == 1 {
                 sendMail()
             }
-            if indexPath.row == 2 {
-                let wvc = WebViewController()
-                wvc.type = "TC"
-                navigationController?.pushViewController(wvc, animated: true)
-            }
-            if indexPath.row == 3 {
-                let wvc = WebViewController()
-                wvc.type = "PP"
-                navigationController?.pushViewController(wvc, animated: true)
-            }
             if indexPath.row == 4 {
                 navigationController?.pushViewController(AboutViewController(), animated: true)
             }
         }else{
             if indexPath.row == 0 {
                 sendMail()
-            }
-            if indexPath.row == 1 {
-                let wvc = WebViewController()
-                wvc.type = "TC"
-                navigationController?.pushViewController(wvc, animated: true)
-            }
-            if indexPath.row == 2 {
-                let wvc = WebViewController()
-                wvc.type = "PP"
-                navigationController?.pushViewController(wvc, animated: true)
             }
             if indexPath.row == 3 {
                 navigationController?.pushViewController(AboutViewController(), animated: true)

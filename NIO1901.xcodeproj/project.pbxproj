@@ -220,7 +220,6 @@
 		5621723E22918EC100C7581D /* Data+Gzip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5621723D22918EC100C7581D /* Data+Gzip.swift */; };
 		5621724122926DD800C7581D /* DataCompression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5621724022926DD800C7581D /* DataCompression.swift */; };
 		562172822292B30400C7581D /* SessionBodyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 562172812292B30400C7581D /* SessionBodyViewController.swift */; };
-		5624E4E52324E0FD00A7403F /* WebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5624E4E42324E0FD00A7403F /* WebViewController.swift */; };
 		562BF76C22A25F2800A7C243 /* PopViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 562BF76B22A25F2800A7C243 /* PopViewController.swift */; };
 		562BF79922A40CCC00A7C243 /* OutputUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 562BF79822A40CCC00A7C243 /* OutputUtil.swift */; };
 		5634537F22B8D8B00076219D /* SFVPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5634537B22B8D8B00076219D /* SFVPNManager.swift */; };
@@ -948,7 +947,6 @@
 		5621723D22918EC100C7581D /* Data+Gzip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Data+Gzip.swift"; sourceTree = "<group>"; };
 		5621724022926DD800C7581D /* DataCompression.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = DataCompression.swift; sourceTree = "<group>"; };
 		562172812292B30400C7581D /* SessionBodyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionBodyViewController.swift; sourceTree = "<group>"; };
-		5624E4E42324E0FD00A7403F /* WebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewController.swift; sourceTree = "<group>"; };
 		562BF76B22A25F2800A7C243 /* PopViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopViewController.swift; sourceTree = "<group>"; };
 		562BF79822A40CCC00A7C243 /* OutputUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputUtil.swift; sourceTree = "<group>"; };
 		5634537B22B8D8B00076219D /* SFVPNManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SFVPNManager.swift; sourceTree = "<group>"; };
@@ -1720,7 +1718,6 @@
 			children = (
 				561DC31222C0625300696B3C /* SettingViewController.swift */,
 				561D612322C5EF0200C5D47E /* AboutViewController.swift */,
-				5624E4E42324E0FD00A7403F /* WebViewController.swift */,
 			);
 			path = Setting;
 			sourceTree = "<group>";
@@ -3223,7 +3220,6 @@
 				56D6C1B422AAC5D800689FCC /* RuleDetailViewController.swift in Sources */,
 				56F07D5C22A6BF1E0061407C /* VisualActivityViewController.swift in Sources */,
 				5675D15422AF855100562E73 /* IDDialogUtil.swift in Sources */,
-				5624E4E52324E0FD00A7403F /* WebViewController.swift in Sources */,
 				5616186D226DD33F00296E8E /* LocationStepsManager.swift in Sources */,
 				561DC31522C237BE00696B3C /* HistoryTaskViewController.swift in Sources */,
 				56A137D32270794700DEE539 /* ConstraintDSL.swift in Sources */,
