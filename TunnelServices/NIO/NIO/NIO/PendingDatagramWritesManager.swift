@@ -15,7 +15,7 @@ import NIOConcurrencyHelpers
 
 private struct PendingDatagramWrite {
     var data: ByteBuffer
-    var promise: EventLoopPromise<Void>?
+    var promise: Optional<EventLoopPromise<Void>>
     let address: SocketAddress
 
     /// A helper function that copies the underlying sockaddr structure into temporary storage,
@@ -360,7 +360,7 @@ final class PendingDatagramWritesManager: PendingWritesManager {
     private var state = PendingDatagramWritesState()
 
     internal var waterMark: ChannelOptions.Types.WriteBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(low: 32 * 1024, high: 64 * 1024)
-    internal let channelWritabilityFlag: Atomic<Bool> = Atomic(value: true)
+    internal let channelWritabilityFlag: NIOAtomic<Bool> = .makeAtomic(value: true)
     internal var writeSpinCount: UInt = 16
     private(set) var isOpen = true
 
@@ -429,14 +429,14 @@ final class PendingDatagramWritesManager: PendingWritesManager {
     ///     - vectorWriteOperation: An operation that writes multiple contiguous arrays of bytes (usually `sendmmsg`).
     /// - returns: The `WriteResult` and whether the `Channel` is now writable.
     func triggerAppropriateWriteOperations(scalarWriteOperation: (UnsafeRawBufferPointer, UnsafePointer<sockaddr>, socklen_t) throws -> IOResult<Int>,
-                                           vectorWriteOperation: (UnsafeMutableBufferPointer<MMsgHdr>) throws -> IOResult<Int>) throws -> (writeResult: OverallWriteResult, writable: Bool) {
+                                           vectorWriteOperation: (UnsafeMutableBufferPointer<MMsgHdr>) throws -> IOResult<Int>) throws -> OverallWriteResult {
         return try self.triggerWriteOperations { writeMechanism in
             switch writeMechanism {
             case .scalarBufferWrite:
-                return try triggerScalarBufferWrite(scalarWriteOperation: scalarWriteOperation)
+                return try triggerScalarBufferWrite(scalarWriteOperation: { try scalarWriteOperation($0, $1, $2) })
             case .vectorBufferWrite:
                 do {
-                    return try triggerVectorBufferWrite(vectorWriteOperation: vectorWriteOperation)
+                    return try triggerVectorBufferWrite(vectorWriteOperation: { try vectorWriteOperation($0) })
                 } catch {
                     // If the error we just hit is recoverable, we fall back to single write mode to
                     // isolate exactly which write triggered the problem.
@@ -444,7 +444,7 @@ final class PendingDatagramWritesManager: PendingWritesManager {
                         throw error
                     }
 
-                    return try triggerScalarBufferWrite(scalarWriteOperation: scalarWriteOperation)
+                    return try triggerScalarBufferWrite(scalarWriteOperation: { try scalarWriteOperation($0, $1, $2) })
                 }
             case .scalarFileWrite:
                 preconditionFailure("PendingDatagramWritesManager was handed a file write")
@@ -524,7 +524,7 @@ final class PendingDatagramWritesManager: PendingWritesManager {
                                                                        msgs: self.msgs,
                                                                        addresses: self.addresses,
                                                                        storageRefs: self.storageRefs,
-                                                                       vectorWriteOperation),
+                                                                       { try vectorWriteOperation($0) }),
                              messages: self.msgs)
     }
 

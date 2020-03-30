@@ -234,6 +234,11 @@ extension ByteToMessageDecoder {
     public func wrapInboundOut(_ value: InboundOut) -> NIOAny {
         return NIOAny(value)
     }
+    
+    public mutating func decodeLast(context: ChannelHandlerContext, buffer: inout ByteBuffer, seenEOF: Bool) throws  -> DecodingState {
+        while try self.decode(context: context, buffer: &buffer) == .continue {}
+        return .needMoreData
+    }
 }
 
 private struct B2MDBuffer {
@@ -376,6 +381,9 @@ public final class ByteToMessageHandler<Decoder: ByteToMessageDecoder> {
     }
 
     private enum RemovalState {
+        /// Not added to any `ChannelPipeline` yet.
+        case notAddedToPipeline
+
         /// No one tried to remove this handler.
         case notBeingRemoved
 
@@ -442,7 +450,7 @@ public final class ByteToMessageHandler<Decoder: ByteToMessageDecoder> {
             assert(!self.state.isFinalState, "illegal state on state set: \(self.state)") // we can never leave final states
         }
     }
-    private var removalState: RemovalState = .notBeingRemoved
+    private var removalState: RemovalState = .notAddedToPipeline
     // sadly to construct a B2MDBuffer we need an empty ByteBuffer which we can only get from the allocator, so IUO.
     private var buffer: B2MDBuffer!
     private var seenEOF: Bool = false
@@ -464,9 +472,12 @@ public final class ByteToMessageHandler<Decoder: ByteToMessageDecoder> {
     }
 
     deinit {
-        assert(self.removalState == .handlerRemovedCalled,
-               "illegal state in deinit: removalState = \(self.removalState)")
-        assert(self.state.isFinalState, "illegal state in deinit: state = \(self.state)")
+        if self.removalState != .notAddedToPipeline {
+            // we have been added to the pipeline, if not, we don't need to check our state.
+            assert(self.removalState == .handlerRemovedCalled,
+                   "illegal state in deinit: removalState = \(self.removalState)")
+            assert(self.state.isFinalState, "illegal state in deinit: state = \(self.state)")
+        }
     }
 }
 
@@ -587,9 +598,10 @@ extension ByteToMessageHandler {
 extension ByteToMessageHandler: ChannelInboundHandler {
 
     public func handlerAdded(context: ChannelHandlerContext) {
-        guard self.removalState == .notBeingRemoved else {
+        guard self.removalState == .notAddedToPipeline else {
             preconditionFailure("\(self) got readded to a ChannelPipeline but ByteToMessageHandler is single-use")
         }
+        self.removalState = .notBeingRemoved
         self.buffer = B2MDBuffer(emptyByteBuffer: context.channel.allocator.buffer(capacity: 0))
         // here we can force it because we know that the decoder isn't in use if we're just adding this handler
         self.selfAsCanDequeueWrites = self as? CanDequeueWrites // we need to cache this as it allocates.

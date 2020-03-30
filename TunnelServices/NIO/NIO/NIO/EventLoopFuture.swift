@@ -22,29 +22,18 @@ import NIOConcurrencyHelpers
 /// In particular, note that _run() here continues to obtain and execute lists of callbacks until it completes.
 /// This eliminates recursion when processing `flatMap()` chains.
 @usableFromInline
-internal struct CallbackList: ExpressibleByArrayLiteral {
+internal struct CallbackList {
     @usableFromInline
     internal typealias Element = () -> CallbackList
     @usableFromInline
-    internal var firstCallback: Element?
+    internal var firstCallback: Optional<Element>
     @usableFromInline
-    internal var furtherCallbacks: [Element]?
+    internal var furtherCallbacks: Optional<[Element]>
 
     @inlinable
     internal init() {
         self.firstCallback = nil
         self.furtherCallbacks = nil
-    }
-
-    @inlinable
-    internal init(arrayLiteral: Element...) {
-        self.init()
-        if !arrayLiteral.isEmpty {
-            self.firstCallback = arrayLiteral[0]
-            if arrayLiteral.count > 1 {
-                self.furtherCallbacks = Array(arrayLiteral.dropFirst())
-            }
-        }
     }
 
     @inlinable
@@ -61,14 +50,30 @@ internal struct CallbackList: ExpressibleByArrayLiteral {
     }
 
     @inlinable
-    internal func _allCallbacks() -> [Element] {
+    internal func _allCallbacks() -> CircularBuffer<Element> {
         switch (self.firstCallback, self.furtherCallbacks) {
         case (.none, _):
             return []
         case (.some(let onlyCallback), .none):
             return [onlyCallback]
+        default:
+            var array: CircularBuffer<Element> = []
+            self.appendAllCallbacks(&array)
+            return array
+        }
+    }
+
+    @inlinable
+    internal func appendAllCallbacks(_ array: inout CircularBuffer<Element>) {
+        switch (self.firstCallback, self.furtherCallbacks) {
+        case (.none, _):
+            return
+        case (.some(let onlyCallback), .none):
+            array.append(onlyCallback)
         case (.some(let first), .some(let others)):
-            return [first] + others
+            array.reserveCapacity(array.count + 1 + others.count)
+            array.append(first)
+            array.append(contentsOf: others)
         }
     }
 
@@ -89,30 +94,21 @@ internal struct CallbackList: ExpressibleByArrayLiteral {
                     continue loop
                 case (.some(_), .some(_)):
                     var pending = cbl._allCallbacks()
-                    while pending.count > 0 {
-                        let list = pending
-                        pending = []
-                        for f in list {
-                            let next = f()
-                            pending.append(contentsOf: next._allCallbacks())
-                        }
+                    while let f = pending.popFirst() {
+                        let next = f()
+                        next.appendAllCallbacks(&pending)
                     }
                     break loop
                 }
             }
-        case (.some(let first), .some(let others)):
-            var pending = [first]+others
-            while pending.count > 0 {
-                let list = pending
-                pending = []
-                for f in list {
-                    let next = f()
-                    pending.append(contentsOf: next._allCallbacks())
-                }
+        default:
+            var pending = self._allCallbacks()
+            while let f = pending.popFirst() {
+                let next = f()
+                next.appendAllCallbacks(&pending)
             }
         }
     }
-
 }
 
 /// Internal error for operations that return results that were not replaced
@@ -372,7 +368,7 @@ public struct EventLoopPromise<Value> {
 public final class EventLoopFuture<Value> {
     // TODO: Provide a tracing facility.  It would be nice to be able to set '.debugTrace = true' on any EventLoopFuture or EventLoopPromise and have every subsequent chained EventLoopFuture report the success result or failure error.  That would simplify some debugging scenarios.
     @usableFromInline
-    internal var _value: Result<Value, Error>?
+    internal var _value: Optional<Result<Value, Error>>
 
     /// The `EventLoop` which is tied to the `EventLoopFuture` and is used to notify all registered callbacks.
     public let eventLoop: EventLoop

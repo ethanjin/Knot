@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 class BaseStreamSocketChannel<Socket: SocketProtocol>: BaseSocketChannel<Socket> {
-    internal var connectTimeoutScheduled: Scheduled<Void>?
+    internal var connectTimeoutScheduled: Optional<Scheduled<Void>>
     private var allowRemoteHalfClosure: Bool = false
     private var inputShutdown: Bool = false
     private var outputShutdown: Bool = false
@@ -24,6 +24,7 @@ class BaseStreamSocketChannel<Socket: SocketProtocol>: BaseSocketChannel<Socket>
                   eventLoop: SelectableEventLoop,
                   recvAllocator: RecvByteBufferAllocator) throws {
         self.pendingWrites = PendingStreamWritesManager(iovecs: eventLoop.iovecs, storageRefs: eventLoop.storageRefs)
+        self.connectTimeoutScheduled = nil
         try super.init(socket: socket, parent: parent, eventLoop: eventLoop, recvAllocator: recvAllocator)
     }
 
@@ -95,7 +96,7 @@ class BaseStreamSocketChannel<Socket: SocketProtocol>: BaseSocketChannel<Socket>
             // Reset reader and writerIndex and so allow to have the buffer filled again. This is better here than at
             // the end of the loop to not do an allocation when the loop exits.
             buffer.clear()
-            switch try buffer.withMutableWritePointer(body: self.socket.read(pointer:)) {
+            switch try buffer.withMutableWritePointer(body: { try self.socket.read(pointer: $0) }) {
             case .processed(let bytesRead):
                 if bytesRead > 0 {
                     let mayGrow = recvAllocator.record(actualReadBytes: bytesRead)
@@ -149,11 +150,7 @@ class BaseStreamSocketChannel<Socket: SocketProtocol>: BaseSocketChannel<Socket>
         }, scalarFileWriteOperation: { descriptor, index, endIndex in
             try self.socket.sendFile(fd: descriptor, offset: index, count: endIndex - index)
         })
-        if result.writable {
-            // writable again
-            self.pipeline.fireChannelWritabilityChanged0()
-        }
-        return result.writeResult
+        return result
     }
 
     final override func close0(error: Error, mode: CloseMode, promise: EventLoopPromise<Void>?) {
@@ -201,6 +198,10 @@ class BaseStreamSocketChannel<Socket: SocketProtocol>: BaseSocketChannel<Socket>
         } catch let err {
             promise?.fail(err)
         }
+    }
+
+    final override func hasFlushedPendingWrites() -> Bool {
+        return self.pendingWrites.isFlushPending
     }
 
     final override func markFlushPoint() {

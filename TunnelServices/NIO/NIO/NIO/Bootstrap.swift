@@ -12,6 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+/// The type of all `channelInitializer` callbacks.
+internal typealias ChannelInitializerCallback = (Channel) -> EventLoopFuture<Void>
+
 /// A `ServerBootstrap` is an easy way to bootstrap a `ServerSocketChannel` when creating network servers.
 ///
 /// Example:
@@ -56,8 +59,8 @@ public final class ServerBootstrap {
 
     private let group: EventLoopGroup
     private let childGroup: EventLoopGroup
-    private var serverChannelInit: ((Channel) -> EventLoopFuture<Void>)?
-    private var childChannelInit: ((Channel) -> EventLoopFuture<Void>)?
+    private var serverChannelInit: Optional<ChannelInitializerCallback>
+    private var childChannelInit: Optional<ChannelInitializerCallback>
     @usableFromInline
     internal var _serverChannelOptions: ChannelOptions.Storage
     @usableFromInline
@@ -81,7 +84,9 @@ public final class ServerBootstrap {
         self.childGroup = childGroup
         self._serverChannelOptions = ChannelOptions.Storage()
         self._childChannelOptions = ChannelOptions.Storage()
-        self._serverChannelOptions.append(key: ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
+        self.serverChannelInit = nil
+        self.childChannelInit = nil
+        self._serverChannelOptions.append(key: ChannelOptions.socket(SocketOptionLevel(Posix.IPPROTO_TCP), TCP_NODELAY), value: 1)
     }
 
     /// Initialize the `ServerSocketChannel` with `initializer`. The most common task in initializer is to add
@@ -137,6 +142,14 @@ public final class ServerBootstrap {
     @inlinable
     public func childChannelOption<Option: ChannelOption>(_ option: Option, value: Option.Value) -> Self {
         self._childChannelOptions.append(key: option, value: value)
+        return self
+    }
+
+    /// Specifies a timeout to apply to a bind attempt. Currently unsupported.
+    ///
+    /// - parameters:
+    ///     - timeout: The timeout that will apply to the bind attempt.
+    public func bindTimeout(_ timeout: TimeAmount) -> Self {
         return self
     }
 
@@ -197,7 +210,7 @@ public final class ServerBootstrap {
                                            protocolFamily: address.protocolFamily)
         }
 
-        return bind0(makeServerChannel: makeChannel) { (eventGroup, serverChannel) in
+        return bind0(makeServerChannel: makeChannel) { (eventLoop, serverChannel) in
             serverChannel.registerAndDoSynchronously { serverChannel in
                 serverChannel.bind(to: address)
             }
@@ -220,12 +233,12 @@ public final class ServerBootstrap {
         }
 
         return eventLoop.submit {
-            // We need to hop to `eventLoop` as the user might have returned a future from a different `EventLoop`.
-            return serverChannelInit(serverChannel).hop(to: eventLoop).flatMap {
-                serverChannel.pipeline.addHandler(AcceptHandler(childChannelInitializer: childChannelInit,
-                                                                childChannelOptions: childChannelOptions))
+            serverChannelOptions.applyAllChannelOptions(to: serverChannel).flatMap {
+                serverChannelInit(serverChannel)
             }.flatMap {
-                serverChannelOptions.applyAllChannelOptions(to: serverChannel)
+                serverChannel.pipeline.addHandler(AcceptHandler(childChannelInitializer: childChannelInit,
+                                                                childChannelOptions: childChannelOptions),
+                                                  name: "AcceptHandler")
             }.flatMap {
                 register(eventLoop, serverChannel)
             }.map {
@@ -351,14 +364,25 @@ private extension Channel {
 /// ```
 ///
 /// The connected `SocketChannel` will operate on `ByteBuffer` as inbound and on `IOData` as outbound messages.
-public final class ClientBootstrap {
-
+public final class ClientBootstrap: NIOClientTCPBootstrapProtocol {
     private let group: EventLoopGroup
-    private var channelInitializer: ((Channel) -> EventLoopFuture<Void>)?
+    private var protocolHandlers: Optional<() -> [ChannelHandler]>
+    private var _channelInitializer: ChannelInitializerCallback
+    private var channelInitializer: ChannelInitializerCallback {
+        if let protocolHandlers = self.protocolHandlers {
+            return { channel in
+                self._channelInitializer(channel).flatMap {
+                    channel.pipeline.addHandlers(protocolHandlers(), position: .first)
+                }
+            }
+        } else {
+            return self._channelInitializer
+        }
+    }
     @usableFromInline
     internal var _channelOptions: ChannelOptions.Storage
     private var connectTimeout: TimeAmount = TimeAmount.seconds(10)
-    private var resolver: Resolver?
+    private var resolver: Optional<Resolver>
 
     /// Create a `ClientBootstrap` on the `EventLoopGroup` `group`.
     ///
@@ -367,7 +391,10 @@ public final class ClientBootstrap {
     public init(group: EventLoopGroup) {
         self.group = group
         self._channelOptions = ChannelOptions.Storage()
-        self._channelOptions.append(key: ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
+        self._channelOptions.append(key: ChannelOptions.socket(SocketOptionLevel(Posix.IPPROTO_TCP), TCP_NODELAY), value: 1)
+        self._channelInitializer = { channel in channel.eventLoop.makeSucceededFuture(()) }
+        self.protocolHandlers = nil
+        self.resolver = nil
     }
 
     /// Initialize the connected `SocketChannel` with `initializer`. The most common task in initializer is to add
@@ -388,7 +415,19 @@ public final class ClientBootstrap {
     /// - parameters:
     ///     - handler: A closure that initializes the provided `Channel`.
     public func channelInitializer(_ handler: @escaping (Channel) -> EventLoopFuture<Void>) -> Self {
-        self.channelInitializer = handler
+        self._channelInitializer = handler
+        return self
+    }
+
+    /// Sets the protocol handlers that will be added to the front of the `ChannelPipeline` right after the
+    /// `channelInitializer` has been called.
+    ///
+    /// Per bootstrap, you can only set the `protocolHandlers` once. Typically, `protocolHandlers` are used for the TLS
+    /// implementation. Most notably, `NIOClientTCPBootstrap`, NIO's "universal bootstrap" abstraction, uses
+    /// `protocolHandlers` to add the required `ChannelHandler`s for many TLS implementations.
+    public func protocolHandlers(_ handlers: @escaping () -> [ChannelHandler]) -> Self {
+        precondition(self.protocolHandlers == nil, "protocol handlers can only be set once")
+        self.protocolHandlers = handlers
         return self
     }
 
@@ -481,7 +520,7 @@ public final class ClientBootstrap {
     /// - returns: an `EventLoopFuture<Channel>` to deliver the `Channel`.
     public func withConnectedSocket(descriptor: CInt) -> EventLoopFuture<Channel> {
         let eventLoop = group.next()
-        let channelInitializer = self.channelInitializer ?? { _ in eventLoop.makeSucceededFuture(()) }
+        let channelInitializer = self.channelInitializer
         let channel: SocketChannel
         do {
             channel = try SocketChannel(eventLoop: eventLoop as! SelectableEventLoop, descriptor: descriptor)
@@ -491,10 +530,10 @@ public final class ClientBootstrap {
 
         func setupChannel() -> EventLoopFuture<Channel> {
             eventLoop.assertInEventLoop()
-            // We need to hop to `eventLoop` as the user might have returned a future from a different `EventLoop`.
-            return channelInitializer(channel).hop(to: eventLoop).flatMap {
-                self._channelOptions.applyAllChannelOptions(to: channel)
+            return self._channelOptions.applyAllChannelOptions(to: channel).flatMap {
+                channelInitializer(channel)
             }.flatMap {
+                eventLoop.assertInEventLoop()
                 let promise = eventLoop.makePromise(of: Void.self)
                 channel.registerAlreadyConfigured0(promise: promise)
                 return promise.futureResult
@@ -516,33 +555,30 @@ public final class ClientBootstrap {
     private func execute(eventLoop: EventLoop,
                          protocolFamily: Int32,
                          _ body: @escaping (Channel) -> EventLoopFuture<Void>) -> EventLoopFuture<Channel> {
-        let channelInitializer = self.channelInitializer ?? { _ in eventLoop.makeSucceededFuture(()) }
+        let channelInitializer = self.channelInitializer
         let channelOptions = self._channelOptions
 
-        let promise = eventLoop.makePromise(of: Channel.self)
         let channel: SocketChannel
         do {
             channel = try SocketChannel(eventLoop: eventLoop as! SelectableEventLoop, protocolFamily: protocolFamily)
-        } catch let err {
-            promise.fail(err)
-            return promise.futureResult
+        } catch {
+            return eventLoop.makeFailedFuture(error)
         }
 
         @inline(__always)
         func setupChannel() -> EventLoopFuture<Channel> {
             eventLoop.assertInEventLoop()
-            // We need to hop to `eventLoop` as the user might have returned a future from a different `EventLoop`.
-            channelInitializer(channel).hop(to: eventLoop).flatMap {
-                channelOptions.applyAllChannelOptions(to: channel)
+            return channelOptions.applyAllChannelOptions(to: channel).flatMap {
+                channelInitializer(channel)
             }.flatMap {
-                channel.registerAndDoSynchronously(body)
+                eventLoop.assertInEventLoop()
+                return channel.registerAndDoSynchronously(body)
             }.map {
                 channel
             }.flatMapError { error in
                 channel.close0(error: error, mode: .all, promise: nil)
                 return channel.eventLoop.makeFailedFuture(error)
-            }.cascade(to: promise)
-            return promise.futureResult
+            }
         }
 
         if eventLoop.inEventLoop {
@@ -579,7 +615,7 @@ public final class ClientBootstrap {
 public final class DatagramBootstrap {
 
     private let group: EventLoopGroup
-    private var channelInitializer: ((Channel) -> EventLoopFuture<Void>)?
+    private var channelInitializer: Optional<ChannelInitializerCallback>
     @usableFromInline
     internal var _channelOptions: ChannelOptions.Storage
 
@@ -590,6 +626,7 @@ public final class DatagramBootstrap {
     public init(group: EventLoopGroup) {
         self._channelOptions = ChannelOptions.Storage()
         self.group = group
+        self.channelInitializer = nil
     }
 
     /// Initialize the bound `DatagramChannel` with `initializer`. The most common task in initializer is to add
@@ -689,12 +726,11 @@ public final class DatagramBootstrap {
 
         func setupChannel() -> EventLoopFuture<Channel> {
             eventLoop.assertInEventLoop()
-            // We need to hop to `eventLoop` as the user might have returned a future from a different `EventLoop`.
-            return channelInitializer(channel).hop(to: eventLoop).flatMap {
-                eventLoop.assertInEventLoop()
-                return channelOptions.applyAllChannelOptions(to: channel)
+            return channelOptions.applyAllChannelOptions(to: channel).flatMap {
+                channelInitializer(channel)
             }.flatMap {
-                registerAndBind(eventLoop, channel)
+                eventLoop.assertInEventLoop()
+                return registerAndBind(eventLoop, channel)
             }.map {
                 channel
             }.flatMapError { error in
@@ -725,7 +761,7 @@ public final class DatagramBootstrap {
 ///
 public final class NIOPipeBootstrap {
     private let group: EventLoopGroup
-    private var channelInitializer: ((Channel) -> EventLoopFuture<Void>)?
+    private var channelInitializer: Optional<ChannelInitializerCallback>
     @usableFromInline
     internal var _channelOptions: ChannelOptions.Storage
 
@@ -736,6 +772,7 @@ public final class NIOPipeBootstrap {
     public init(group: EventLoopGroup) {
         self._channelOptions = ChannelOptions.Storage()
         self.group = group
+        self.channelInitializer = nil
     }
 
     /// Initialize the connected `PipeChannel` with `initializer`. The most common task in initializer is to add
@@ -803,10 +840,10 @@ public final class NIOPipeBootstrap {
 
         func setupChannel() -> EventLoopFuture<Channel> {
             eventLoop.assertInEventLoop()
-            // We need to hop to `eventLoop` as the user might have returned a future from a different `EventLoop`.
-            return channelInitializer(channel).hop(to: eventLoop).flatMap {
-                self._channelOptions.applyAllChannelOptions(to: channel)
+            return self._channelOptions.applyAllChannelOptions(to: channel).flatMap {
+                channelInitializer(channel)
             }.flatMap {
+                eventLoop.assertInEventLoop()
                 let promise = eventLoop.makePromise(of: Void.self)
                 channel.registerAlreadyConfigured0(promise: promise)
                 return promise.futureResult

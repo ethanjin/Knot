@@ -291,6 +291,10 @@ final class ServerSocketChannel: BaseSocketChannel<ServerSocket> {
         }
     }
 
+    override func hasFlushedPendingWrites() -> Bool {
+        return false
+    }
+
     override func bufferPendingWrite(data: NIOAny, promise: EventLoopPromise<Void>?) {
         promise?.fail(ChannelError.operationUnsupported)
     }
@@ -326,7 +330,7 @@ final class DatagramChannel: BaseSocketChannel<Socket> {
     private let pendingWrites: PendingDatagramWritesManager
 
     /// Support for vector reads, if enabled.
-    private var vectorReadManager: DatagramVectorReadManager?
+    private var vectorReadManager: Optional<DatagramVectorReadManager>
 
     // This is `Channel` API so must be thread-safe.
     override public var isWritable: Bool {
@@ -357,6 +361,7 @@ final class DatagramChannel: BaseSocketChannel<Socket> {
     }
 
     init(eventLoop: SelectableEventLoop, protocolFamily: Int32) throws {
+        self.vectorReadManager = nil
         let socket = try Socket(protocolFamily: protocolFamily, type: Posix.SOCK_DGRAM)
         do {
             try socket.setNonBlocking()
@@ -377,6 +382,7 @@ final class DatagramChannel: BaseSocketChannel<Socket> {
     }
 
     init(socket: Socket, parent: Channel? = nil, eventLoop: SelectableEventLoop) throws {
+        self.vectorReadManager = nil
         try socket.setNonBlocking()
         self.pendingWrites = PendingDatagramWritesManager(msgs: eventLoop.msgs,
                                                           iovecs: eventLoop.iovecs,
@@ -561,6 +567,10 @@ final class DatagramChannel: BaseSocketChannel<Socket> {
         }
     }
 
+    override final func hasFlushedPendingWrites() -> Bool {
+        return self.pendingWrites.isFlushPending
+    }
+
     /// Mark a flush point. This is called when flush is received, and instructs
     /// the implementation to record the flush.
     override func markFlushPoint() {
@@ -588,12 +598,7 @@ final class DatagramChannel: BaseSocketChannel<Socket> {
         }, vectorWriteOperation: { msgs in
             try self.socket.sendmmsg(msgs: msgs)
         })
-        if result.writable {
-            // writable again
-            assert(self.isActive)
-            self.pipeline.fireChannelWritabilityChanged0()
-        }
-        return result.writeResult
+        return result
     }
 
     // MARK: Datagram Channel overrides not required by BaseSocketChannel
