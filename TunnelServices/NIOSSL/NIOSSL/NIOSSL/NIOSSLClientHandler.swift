@@ -15,7 +15,7 @@
 import NIO
 
 extension String {
-    private func isIPAddress() -> Bool {
+    public func isIPAddress() -> Bool {
         // We need some scratch space to let inet_pton write into.
         var ipv4Addr = in_addr()
         var ipv6Addr = in6_addr()
