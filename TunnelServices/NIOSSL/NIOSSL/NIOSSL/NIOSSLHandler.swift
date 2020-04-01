@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIO
-#if compiler(>=5.1) && compiler(<5.2)
+#if compiler(>=5.1) && compiler(<5.3)
 @_implementationOnly import CNIOBoringSSL
 #else
 import CNIOBoringSSL
@@ -38,7 +38,7 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
         case idle
         case handshaking
         case active
-        case unwrapping
+        case unwrapping(Scheduled<Void>)
         case closing(Scheduled<Void>)
         case unwrapped
         case closed
@@ -134,7 +134,9 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
             doDecodeData(context: context)
             doUnbufferWrites(context: context)
         case .closing:
-            doShutdownStep(context: context)
+            // Handle both natural close events and close events where data is still in
+            // flight.  Sending through doDecodeData will handle both conditions.
+            doDecodeData(context: context)
         case .unwrapping:
             self.doShutdownStep(context: context)
         default:
@@ -177,11 +179,11 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
             } else if let promise = promise {
                 self.closePromise = promise
             }
-        case .unwrapping:
+        case .unwrapping(let scheduledShutdown):
             // We've been asked to close the connection, but we were currently unwrapping.
             // We don't have to send any CLOSE_NOTIFY, but we now need to upgrade ourselves:
             // closing is a more extreme activity than unwrapping.
-            self.state = .closing(self.scheduleTimedOutShutdown(context: context))
+            self.state = .closing(scheduledShutdown)
             if let promise = promise, let closePromise = self.closePromise {
                 closePromise.futureResult.cascade(to: promise)
             } else if let promise = promise {
@@ -273,7 +275,8 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
         case .closing(let scheduledShutdown):
             uncleanScheduledShutdown = scheduledShutdown
             targetCompleteState = .closed
-        case .unwrapping:
+        case .unwrapping(let scheduledShutdown):
+            uncleanScheduledShutdown = scheduledShutdown
             targetCompleteState = .unwrapped
         default:
             preconditionFailure("Shutting down in a non-shutting-down state")
@@ -310,8 +313,24 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
     /// out. This task should be cancelled if the shutdown does not time out.
     private func scheduleTimedOutShutdown(context: ChannelHandlerContext) -> Scheduled<Void> {
         return context.eventLoop.scheduleTask(in: self.shutdownTimeout) {
-            self.state = .closed
-            self.channelClose(context: context, reason: NIOSSLCloseTimedOutError())
+            switch self.state {
+            case .idle, .handshaking, .active:
+                preconditionFailure("Cannot schedule timed out shutdown on non-shutting down handler")
+
+            case .closed, .unwrapped:
+                // This means we raced with the shutdown completing. We just let this one go: do nothing.
+                return
+
+            case .closing:
+                // We're closing, the only thing we do here is exit.
+                self.state = .closed
+                self.channelClose(context: context, reason: NIOSSLCloseTimedOutError())
+
+            case .unwrapping:
+                // The user only wants us to error and unwrap, not to close.
+                self.state = .unwrapped
+                self.channelUnwrap(context: context, failedWithError: NIOSSLCloseTimedOutError())
+            }
         }
     }
 
@@ -448,7 +467,7 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
         context.close(promise: closePromise)
     }
 
-    private func channelUnwrap(context: ChannelHandlerContext) {
+    private func channelUnwrap(context: ChannelHandlerContext, failedWithError error: Error? = nil) {
         assert(self.closePromise == nil)
         self.state = .unwrapped
 
@@ -465,9 +484,23 @@ public class NIOSSLHandler : ChannelInboundHandler, ChannelOutboundHandler, Remo
             if let unconsumedData = self.connection.extractUnconsumedData() {
                 context.fireChannelRead(self.wrapInboundOut(unconsumedData))
             }
+
+            if let error = error {
+                context.fireErrorCaught(error)
+            }
         }
 
         if let promise = shutdownPromise {
+            removalFuture.whenComplete { result in
+                switch (result, error) {
+                case(.success, .none):
+                    promise.succeed(())
+                case (.success, .some(let error)):
+                    promise.fail(error)
+                case (.failure(let failure), _):
+                    promise.fail(failure)
+                }
+            }
             removalFuture.cascade(to: promise)
         }
 
@@ -501,13 +534,15 @@ extension NIOSSLHandler {
     ///
     /// This will send a CLOSE_NOTIFY and wait for the corresponding CLOSE_NOTIFY. When that next
     /// CLOSE_NOTIFY is received, this handler will pass on all pending writes and remove itself
-    /// from the channel pipeline.
+    /// from the channel pipeline. If the shutdown times out then an error will fire down the
+    /// pipeline, this handler will remove itself from the pipeline, but the channel will not be
+    /// automatically closed.
     ///
     /// This function **is not thread-safe**: you **must** call it from the correct event
     /// loop thread.
     ///
     /// - parameters:
-    ///     - promise: (optional) An `EventLoopPromise` that will be completed when the unwrapping has
+    ///     - promise: An `EventLoopPromise` that will be completed when the unwrapping has
     ///         completed.
     public func stopTLS(promise: EventLoopPromise<Void>?) {
         switch self.state {
@@ -526,7 +561,7 @@ extension NIOSSLHandler {
                 return
             }
 
-            self.state = .unwrapping
+            self.state = .unwrapped
             self.shutdownPromise = promise
             self.channelUnwrap(context: storedContext)
 
@@ -537,7 +572,7 @@ extension NIOSSLHandler {
                 return
             }
 
-            self.state = .unwrapping
+            self.state = .unwrapping(self.scheduleTimedOutShutdown(context: storedContext))
             self.shutdownPromise = promise
             self.doShutdownStep(context: storedContext)
 
@@ -581,42 +616,22 @@ extension NIOSSLHandler {
         var promises: [EventLoopPromise<Void>] = []
         var didWrite = false
 
-        /// Given a byte buffer to encode, passes it to BoringSSL and handles the result.
-        func encodeWrite(buf: inout ByteBuffer, promise: EventLoopPromise<Void>?) throws -> Bool {
-            let result = connection.writeDataToNetwork(&buf)
-
-            switch result {
-            case .complete:
-                didWrite = true
-                if let promise = promise { promises.append(promise) }
-                return true
-            case .incomplete:
-                // Ok, we can't write. Let's stop.
-                return false
-            case .failed(let err):
-                // Once a write fails, all writes must fail. This includes prior writes
-                // that successfully made it through BoringSSL.
-                throw err
-            }
-        }
-
-        func flushWrites() {
-            let ourPromise: EventLoopPromise<Void> = context.eventLoop.makePromise()
-            promises.forEach { ourPromise.futureResult.cascade(to: $0) }
-            writeDataToNetwork(context: context, promise: ourPromise)
-            promises = []
-        }
-
         do {
             try bufferedWrites.forEachElementUntilMark { element in
                 var data = element.data
-                return try encodeWrite(buf: &data, promise: element.promise)
+                let writeSuccessful = try self._encodeSingleWrite(buf: &data)
+                if writeSuccessful {
+                    didWrite = true
+                    if let promise = element.promise { promises.append(promise) }
+                }
+                return writeSuccessful
             }
 
             // If we got this far and did a write, we should shove the data out to the
             // network.
             if didWrite {
-                flushWrites()
+                let ourPromise: EventLoopPromise<Void>? = promises.flattenPromises(on: context.eventLoop)
+                self.writeDataToNetwork(context: context, promise: ourPromise)
             }
         } catch {
             // We encountered an error, it's cleanup time. Close ourselves down.
@@ -627,10 +642,31 @@ extension NIOSSLHandler {
             self.discardBufferedWrites(reason: error)
         }
     }
+
+    /// Given a ByteBuffer to encode, passes it to BoringSSL and handles the result.
+    private func _encodeSingleWrite(buf: inout ByteBuffer) throws -> Bool {
+        let result = self.connection.writeDataToNetwork(&buf)
+
+        switch result {
+        case .complete:
+            return true
+        case .incomplete:
+            // Ok, we can't write. Let's stop.
+            return false
+        case .failed(let err):
+            // Once a write fails, all writes must fail. This includes prior writes
+            // that successfully made it through BoringSSL.
+            throw err
+        }
+    }
 }
 
 fileprivate extension MarkedCircularBuffer {
     mutating func forEachElementUntilMark(callback: (Element) throws -> Bool) rethrows {
+        // This function generates quite a lot of ARC traffic, as it needs to pass a copy of .first
+        // into the closure. Sadly, MarkedCircularBuffer won't let us put something in _front_ of the
+        // marked index, so we cannot ensure that everything has only one owner here. Until we can
+        // do something about that, we just have to live with this.
         while try self.hasMark && callback(self.first!) {
             _ = self.removeFirst()
         }
@@ -640,6 +676,33 @@ fileprivate extension MarkedCircularBuffer {
         while self.count > 0 {
             callback(self.removeFirst())
         }
+    }
+}
+
+
+fileprivate extension Array where Element == EventLoopPromise<Void> {
+    /// Given an array of promises, flattens it out to a single promise.
+    /// If the array is empty, returns nil.
+    func flattenPromises(on loop: EventLoop) -> EventLoopPromise<Void>? {
+        guard self.count > 0 else {
+            return nil
+        }
+
+        let ourPromise = loop.makePromise(of: Void.self)
+
+        // We don't use cascade here because cascade has to create one closure per
+        // promise. We can do better by creating only a single closure that dispatches
+        // the result to all promises.
+        ourPromise.futureResult.whenComplete { result in
+            switch result {
+            case .success:
+                self.forEach { $0.succeed(()) }
+            case .failure(let error):
+                self.forEach { $0.fail(error) }
+            }
+        }
+
+        return ourPromise
     }
 }
 

@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIO
-#if compiler(>=5.1) && compiler(<5.2)
+#if compiler(>=5.1) && compiler(<5.3)
 @_implementationOnly import CNIOBoringSSL
 @_implementationOnly import CNIOBoringSSLShims
 #else
@@ -123,7 +123,7 @@ public final class NIOSSLContext {
     /// configuration.
     internal init(configuration: TLSConfiguration, callbackManager: CallbackManagerProtocol?) throws {
         guard boringSSLIsInitialized else { fatalError("Failed to initialize BoringSSL") }
-        guard let context = CNIOBoringSSL_SSL_CTX_new(CNIOBoringSSL_TLS_method()) else { throw NIOSSLError.unableToAllocateBoringSSLObject }
+        guard let context = CNIOBoringSSL_SSL_CTX_new(CNIOBoringSSL_TLS_method()) else { fatalError("Failed to create new BoringSSL context") }
 
         let minTLSVersion: CInt
         switch configuration.minimumTLSVersion {
@@ -167,7 +167,7 @@ public final class NIOSSLContext {
         // If we were given a certificate chain to use, load it and its associated private key. Before
         // we do, set up a passphrase callback if we need to.
         if let callbackManager = callbackManager {
-            CNIOBoringSSL_SSL_CTX_set_default_passwd_cb(context, globalBoringSSLPassphraseCallback(buf:size:rwflag:u:))
+            CNIOBoringSSL_SSL_CTX_set_default_passwd_cb(context, { globalBoringSSLPassphraseCallback(buf: $0, size: $1, rwflag: $2, u: $3) })
             CNIOBoringSSL_SSL_CTX_set_default_passwd_cb_userdata(context, Unmanaged.passUnretained(callbackManager as AnyObject).toOpaque())
         }
 
@@ -196,7 +196,7 @@ public final class NIOSSLContext {
             }
         }
 
-        if configuration.applicationProtocols.count > 0 {
+        if configuration.encodedApplicationProtocols.count > 0 {
             try NIOSSLContext.setAlpnProtocols(configuration.encodedApplicationProtocols, context: context)
             NIOSSLContext.setAlpnCallback(context: context)
         }
@@ -246,7 +246,20 @@ public final class NIOSSLContext {
         guard let ssl = CNIOBoringSSL_SSL_new(self.sslContext) else {
             return nil
         }
-        return SSLConnection(ownedSSL: ssl, parentContext: self)
+
+        let conn = SSLConnection(ownedSSL: ssl, parentContext: self)
+
+        // If we need to turn on the validation on Apple platforms, do it here.
+        #if os(macOS) || os(iOS) || os(watchOS) || os(tvOS)
+        switch self.configuration.trustRoots {
+        case .some(.default), .none:
+            conn.setCustomVerificationCallback(CustomVerifyManager(callback: { conn.performSecurityFrameworkValidation(promise: $0) }))
+        case .some(.certificates), .some(.file):
+            break
+        }
+        #endif
+
+        return conn
     }
 
     fileprivate func alpnSelectCallback(offeredProtocols: UnsafeBufferPointer<UInt8>) ->  (index: Int, length: Int)? {
@@ -397,8 +410,9 @@ extension NIOSSLContext {
     }
 
     private static func platformDefaultConfiguration(context: OpaquePointer) throws {
-        // Platform default trust is configured differently in different places. On Darwin we invoke Security.framework in a custom callback.
+        // Platform default trust is configured differently in different places.
         // On Linux, we use our searched heuristics to guess about where the platform trust store is.
+        // On Darwin, we use a custom callback that is set later, in createConnection
         #if os(Linux)
         let result = rootCAFilePath.withCString { rootCAFilePointer in
             rootCADirectoryPath.withCString { rootCADirectoryPointer in
@@ -410,8 +424,6 @@ extension NIOSSLContext {
             let errorStack = BoringSSLError.buildErrorStack()
             throw BoringSSLError.unknownError(errorStack)
         }
-        #elseif os(macOS) || os(iOS) || os(watchOS) || os(tvOS)
-        CNIOBoringSSL_SSL_CTX_set_custom_verify(context, SSL_VERIFY_PEER, securityFrameworkCustomVerify)
         #endif
     }
 
@@ -439,7 +451,7 @@ extension Optional where Wrapped == String {
     internal func withCString<Result>(_ body: (UnsafePointer<CChar>?) throws -> Result) rethrows -> Result {
         switch self {
         case .some(let s):
-            return try s.withCString(body)
+            return try s.withCString({ try body($0 ) })
         case .none:
             return try body(nil)
         }

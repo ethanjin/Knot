@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-//#if compiler(>=5.1) && compiler(<5.2)
+//#if compiler(>=5.1) && compiler(<5.3)
 //@_implementationOnly import CNIOBoringSSL
 //@_implementationOnly import CNIOBoringSSLShims
 //#else
@@ -47,7 +47,7 @@ public class NIOSSLCertificate {
         case ipv6(in6_addr)
     }
 
-    private init(withReference ref: UnsafeMutablePointer<X509>) {
+    private init(withOwnedReference ref: UnsafeMutablePointer<X509>) {
         self._ref = UnsafeMutableRawPointer(ref) // erasing the type for @_implementationOnly import CNIOBoringSSL
     }
 
@@ -73,7 +73,7 @@ public class NIOSSLCertificate {
             throw NIOSSLError.failedToLoadCertificate
         }
 
-        self.init(withReference: x509!)
+        self.init(withOwnedReference: x509!)
     }
 
     /// Create a NIOSSLCertificate from a buffer of bytes in either PEM or
@@ -107,7 +107,36 @@ public class NIOSSLCertificate {
             throw NIOSSLError.failedToLoadCertificate
         }
 
-        self.init(withReference: ref!)
+        self.init(withOwnedReference: ref!)
+    }
+
+    /// Create a NIOSSLCertificate from a buffer of bytes in either PEM or DER format.
+    internal convenience init(bytes ptr: UnsafeRawBufferPointer, format: NIOSSLSerializationFormats) throws {
+        // TODO(cory):
+        // The body of this method is exactly identical to the initializer above, except for the "withUnsafeBytes" call.
+        // ContiguousBytes would have been the lowest effort way to reduce this duplication, but we can't use it without
+        // bringing Foundation in. Probably we should use Sequence where Element == UInt8 and the withUnsafeContiguousBytesIfAvailable
+        // method, but that's a much more substantial refactor. Let's do it later.
+        let bio = CNIOBoringSSL_BIO_new_mem_buf(ptr.baseAddress, CInt(ptr.count))!
+
+        defer {
+            CNIOBoringSSL_BIO_free(bio)
+        }
+
+        let ref: UnsafeMutablePointer<X509>?
+
+        switch format {
+        case .pem:
+            ref = CNIOBoringSSL_PEM_read_bio_X509(bio, nil, nil, nil)
+        case .der:
+            ref = CNIOBoringSSL_d2i_X509_bio(bio, nil)
+        }
+
+        if ref == nil {
+            throw NIOSSLError.failedToLoadCertificate
+        }
+
+        self.init(withOwnedReference: ref!)
     }
 
     /// Create a NIOSSLCertificate wrapping a pointer into BoringSSL.
@@ -121,7 +150,7 @@ public class NIOSSLCertificate {
     /// In general, however, this function should be avoided in favour of one of the convenience
     /// initializers, which ensure that the lifetime of the `X509` object is better-managed.
     public static func fromUnsafePointer(takingOwnership pointer: UnsafeMutablePointer<X509>) -> NIOSSLCertificate {
-        return NIOSSLCertificate(withReference: pointer)
+        return NIOSSLCertificate(withOwnedReference: pointer)
     }
 
     /// Get a sequence of the alternative names in the certificate.
@@ -193,10 +222,18 @@ extension NIOSSLCertificate {
     /// - throws: If an error is encountered extracting the key.
     public func extractPublicKey() throws -> NIOSSLPublicKey {
         guard let key = CNIOBoringSSL_X509_get_pubkey(self.ref) else {
-            throw NIOSSLError.unableToAllocateBoringSSLObject
+            fatalError("Failed to extract a public key reference")
         }
 
         return NIOSSLPublicKey.fromInternalPointer(takingOwnership: key)
+    }
+
+    /// Extracts the bytes of this certificate in DER format.
+    ///
+    /// - returns: The DER-encoded bytes for this certificate.
+    /// - throws: If an error occurred while serializing the certificate.
+    public func toDERBytes() throws -> [UInt8] {
+        return try self.withUnsafeDERCertificateBuffer { Array($0) }
     }
 
     /// Create an array of `NIOSSLCertificate`s from a buffer of bytes in PEM format.
@@ -240,7 +277,7 @@ extension NIOSSLCertificate {
         }
 
         guard let bio = CNIOBoringSSL_BIO_new(CNIOBoringSSL_BIO_s_file()) else {
-            throw NIOSSLError.unableToAllocateBoringSSLObject
+            fatalError("Failed to create a BIO handle to read a PEM file")
         }
         defer {
             CNIOBoringSSL_BIO_free(bio)
@@ -259,10 +296,10 @@ extension NIOSSLCertificate {
             throw NIOSSLError.failedToLoadCertificate
         }
 
-        var certificates = [NIOSSLCertificate(withReference: x509)]
+        var certificates = [NIOSSLCertificate(withOwnedReference: x509)]
 
         while let x = CNIOBoringSSL_PEM_read_bio_X509(bio, nil, nil, nil) {
-            certificates.append(.init(withReference: x))
+            certificates.append(.init(withOwnedReference: x))
         }
 
         let err = CNIOBoringSSL_ERR_peek_error()
@@ -276,11 +313,51 @@ extension NIOSSLCertificate {
 
         return certificates
     }
+
+    /// Calls the given body function with a temporary buffer containing the DER-encoded bytes of this
+    /// certificate. This function does allocate for these bytes, but there is no way to avoid doing so with the
+    /// X509 API in BoringSSL.
+    ///
+    /// The pointer provided to the closure is not valid beyond the lifetime of this method call.
+    private func withUnsafeDERCertificateBuffer<T>(_ body: (UnsafeRawBufferPointer) throws -> T) throws -> T {
+        guard let bio = CNIOBoringSSL_BIO_new(CNIOBoringSSL_BIO_s_mem()) else {
+            fatalError("Failed to malloc for a BIO handler")
+        }
+
+        defer {
+            CNIOBoringSSL_BIO_free(bio)
+        }
+
+        let rc = CNIOBoringSSL_i2d_X509_bio(bio, self.ref)
+        guard rc == 1 else {
+            let errorStack = BoringSSLError.buildErrorStack()
+            throw BoringSSLError.unknownError(errorStack)
+        }
+
+        var dataPtr: UnsafeMutablePointer<CChar>? = nil
+        let length = CNIOBoringSSL_BIO_get_mem_data(bio, &dataPtr)
+
+        guard let bytes = dataPtr.map({ UnsafeRawBufferPointer(start: $0, count: length) }) else {
+            fatalError("Failed to map bytes from a certificate")
+        }
+
+        return try body(bytes)
+    }
 }
 
 extension NIOSSLCertificate: Equatable {
     public static func ==(lhs: NIOSSLCertificate, rhs: NIOSSLCertificate) -> Bool {
         return CNIOBoringSSL_X509_cmp(lhs.ref, rhs.ref) == 0
+    }
+}
+
+
+extension NIOSSLCertificate: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        // We just hash the DER bytes of the cert. If we can't get the bytes, this is a fatal error as
+        // we have no way to recover from it. It's unfortunate that this allocates, but the code to hash
+        // a certificate in any other way is too fragile to justify.
+        try! self.withUnsafeDERCertificateBuffer { hasher.combine(bytes: $0) }
     }
 }
 

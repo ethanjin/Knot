@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=5.1) && compiler(<5.2)
+#if compiler(>=5.1) && compiler(<5.3)
 @_implementationOnly import CNIOBoringSSL
 #else
 import CNIOBoringSSL
@@ -38,11 +38,6 @@ public struct BoringSSLInternalError: Equatable, CustomStringConvertible {
     init(errorCode: UInt32) {
         self.errorCode = errorCode
     }
-
-    public static func ==(lhs: BoringSSLInternalError, rhs: BoringSSLInternalError) -> Bool {
-        return lhs.errorCode == rhs.errorCode
-    }
-
 }
 
 /// A representation of BoringSSL's internal error stack: a list of BoringSSL errors.
@@ -52,6 +47,7 @@ public typealias NIOBoringSSLErrorStack = [BoringSSLInternalError]
 /// Errors that can be raised by NIO's BoringSSL wrapper.
 public enum NIOSSLError: Error {
     case writeDuringTLSShutdown
+    @available(*, deprecated, message: "unableToAllocateBoringSSLObject can no longer be thrown")
     case unableToAllocateBoringSSLObject
     case noSuchFilesystemObject
     case failedToLoadCertificate
@@ -66,27 +62,7 @@ public enum NIOSSLError: Error {
     case uncleanShutdown
 }
 
-extension NIOSSLError: Equatable {
-    public static func ==(lhs: NIOSSLError, rhs: NIOSSLError) -> Bool {
-        switch (lhs, rhs) {
-        case (.writeDuringTLSShutdown, .writeDuringTLSShutdown),
-             (.unableToAllocateBoringSSLObject, .unableToAllocateBoringSSLObject),
-             (.noSuchFilesystemObject, .noSuchFilesystemObject),
-             (.failedToLoadCertificate, .failedToLoadCertificate),
-             (.failedToLoadPrivateKey, .failedToLoadPrivateKey),
-             (.cannotMatchULabel, .cannotMatchULabel),
-             (.noCertificateToValidate, .noCertificateToValidate),
-             (.unableToValidateCertificate, .unableToValidateCertificate),
-             (.uncleanShutdown, .uncleanShutdown):
-            return true
-        case (.handshakeFailed(let err1), .handshakeFailed(let err2)),
-             (.shutdownFailed(let err1), .shutdownFailed(let err2)):
-            return err1 == err2
-        default:
-            return false
-        }
-    }
-}
+extension NIOSSLError: Equatable {}
 
 /// Closing the TLS channel cleanly timed out, so it was closed uncleanly.
 public struct NIOSSLCloseTimedOutError: Error {}
@@ -110,25 +86,6 @@ public enum BoringSSLError: Error {
 
 extension BoringSSLError: Equatable {}
 
-public func ==(lhs: BoringSSLError, rhs: BoringSSLError) -> Bool {
-    switch (lhs, rhs) {
-    case (.noError, .noError),
-         (.zeroReturn, .zeroReturn),
-         (.wantRead, .wantRead),
-         (.wantWrite, .wantWrite),
-         (.wantConnect, .wantConnect),
-         (.wantAccept, .wantAccept),
-         (.wantCertificateVerify, .wantCertificateVerify),
-         (.wantX509Lookup, .wantX509Lookup),
-         (.syscallError, .syscallError):
-        return true
-    case (.sslError(let e1), .sslError(let e2)),
-         (.unknownError(let e1), .unknownError(let e2)):
-        return e1 == e2
-    default:
-        return false
-    }
-}
 
 internal extension BoringSSLError {
     static func fromSSLGetErrorResult(_ result: CInt) -> BoringSSLError? {
@@ -185,4 +142,83 @@ public enum NIOTLSUnwrappingError: Error {
 
     /// This write was failed because the channel was unwrapped before it was flushed.
     case unflushedWriteOnUnwrap
+}
+
+
+/// This structure contains errors added to NIOSSL after the original `NIOSSLError` enum was
+/// shipped. This is an extensible error object that allows us to evolve it going forward.
+public struct NIOSSLExtraError: Error {
+    private var baseError: NIOSSLExtraError.BaseError
+
+    private var _description: String?
+
+    private init(baseError: NIOSSLExtraError.BaseError, description: String?) {
+        self.baseError = baseError
+        self._description = description
+    }
+}
+
+
+extension NIOSSLExtraError {
+    private enum BaseError: Equatable {
+        case failedToValidateHostname
+        case serverHostnameImpossibleToMatch
+        case cannotUseIPAddressInSNI
+        case invalidSNIHostname
+    }
+}
+
+
+extension NIOSSLExtraError {
+    /// NIOSSL was unable to validate the hostname presented by the remote peer.
+    public static let failedToValidateHostname = NIOSSLExtraError(baseError: .failedToValidateHostname, description: nil)
+
+    /// The server hostname provided by the user cannot match any names in the certificate due to containing invalid characters.
+    public static let serverHostnameImpossibleToMatch = NIOSSLExtraError(baseError: .serverHostnameImpossibleToMatch, description: nil)
+
+    /// IP addresses may not be used in SNI.
+    public static let cannotUseIPAddressInSNI = NIOSSLExtraError(baseError: .cannotUseIPAddressInSNI, description: nil)
+
+    /// The SNI hostname requirements have not been met.
+    ///
+    /// - note: Should the provided SNI hostname be an IP address instead, `.cannotUseIPAddressInSNI` is thrown instead
+    ///         of this error.
+    ///
+    /// Reasons a hostname might not meet the requirements:
+    /// - hostname in UTF8 is more than 255 bytes
+    /// - hostname is the empty string
+    /// - hostname contains the `0` unicode scalar (which would be encoded as the `0` byte which is unsupported).
+    public static let invalidSNIHostname = NIOSSLExtraError(baseError: .invalidSNIHostname, description: nil)
+
+    @inline(never)
+    internal static func failedToValidateHostname(expectedName: String) -> NIOSSLExtraError {
+        let description = "Couldn't find \(expectedName) in certificate from peer"
+        return NIOSSLExtraError(baseError: .failedToValidateHostname, description: description)
+    }
+
+    @inline(never)
+    internal static func serverHostnameImpossibleToMatch(hostname: String) -> NIOSSLExtraError {
+        let description = "The server hostname \(hostname) cannot be matched due to containing non-DNS characters"
+        return NIOSSLExtraError(baseError: .serverHostnameImpossibleToMatch, description: description)
+    }
+
+    @inline(never)
+    internal static func cannotUseIPAddressInSNI(ipAddress: String) -> NIOSSLExtraError {
+        let description = "IP addresses cannot validly be used for Server Name Indication, got \(ipAddress)"
+        return NIOSSLExtraError(baseError: .cannotUseIPAddressInSNI, description: description)
+    }
+}
+
+
+extension NIOSSLExtraError: CustomStringConvertible {
+    public var description: String {
+        let formattedDescription = self._description.map { ": " + $0 } ?? ""
+        return "NIOSSLExtraError.\(String(describing: self.baseError))\(formattedDescription)"
+    }
+}
+
+extension NIOSSLExtraError: Equatable {
+    public static func ==(lhs: NIOSSLExtraError, rhs: NIOSSLExtraError) -> Bool {
+        return lhs.baseError == rhs.baseError
+    }
 }
