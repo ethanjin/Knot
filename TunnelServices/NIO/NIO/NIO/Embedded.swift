@@ -48,7 +48,7 @@ extension EmbeddedScheduledTask: Comparable {
 ///     unsynchronized fashion.
 public final class EmbeddedEventLoop: EventLoop {
     /// The current "time" for this event loop. This is an amount in nanoseconds.
-    private var now: NIODeadline = .uptimeNanoseconds(0)
+    /* private but tests */ internal var _now: NIODeadline = .uptimeNanoseconds(0)
 
     private var scheduledTasks = PriorityQueue<EmbeddedScheduledTask>(ascending: true)
 
@@ -82,13 +82,13 @@ public final class EmbeddedEventLoop: EventLoop {
     /// - see: `EventLoop.scheduleTask(in:_:)`
     @discardableResult
     public func scheduleTask<T>(in: TimeAmount, _ task: @escaping () throws -> T) -> Scheduled<T> {
-        return scheduleTask(deadline: self.now + `in`, task)
+        return scheduleTask(deadline: self._now + `in`, task)
     }
 
     /// On an `EmbeddedEventLoop`, `execute` will simply use `scheduleTask` with a deadline of _now_. This means that
     /// `task` will be run the next time you call `EmbeddedEventLoop.run`.
     public func execute(_ task: @escaping () -> Void) {
-        self.scheduleTask(deadline: self.now, task)
+        self.scheduleTask(deadline: self._now, task)
     }
 
     /// Run all tasks that have previously been submitted to this `EmbeddedEventLoop`, either by calling `execute` or
@@ -104,7 +104,7 @@ public final class EmbeddedEventLoop: EventLoop {
     /// Runs the event loop and moves "time" forward by the given amount, running any scheduled
     /// tasks that need to be run.
     public func advanceTime(by: TimeAmount) {
-        let newTime = self.now + by
+        let newTime = self._now + by
 
         while let nextTask = self.scheduledTasks.peek() {
             guard nextTask.readyTime <= newTime else {
@@ -121,7 +121,7 @@ public final class EmbeddedEventLoop: EventLoop {
 
             // Set the time correctly before we call into user code, then
             // call in for all tasks.
-            self.now = nextTask.readyTime
+            self._now = nextTask.readyTime
 
             for task in tasks {
                 task.task()
@@ -129,7 +129,19 @@ public final class EmbeddedEventLoop: EventLoop {
         }
 
         // Finally ensure we got the time right.
-        self.now = newTime
+        self._now = newTime
+    }
+
+    internal func drainScheduledTasksByRunningAllCurrentlyScheduledTasks() {
+        var currentlyScheduledTasks = self.scheduledTasks
+        while let nextTask = currentlyScheduledTasks.pop() {
+            self._now = nextTask.readyTime
+            nextTask.task()
+        }
+        // Just drop all the remaining scheduled tasks. Despite having run all the tasks that were
+        // scheduled when we entered the method this may still contain tasks as running the tasks
+        // may have enqueued more tasks.
+        while self.scheduledTasks.pop() != nil {}
     }
 
     /// - see: `EventLoop.close`
@@ -156,7 +168,7 @@ class EmbeddedChannelCore: ChannelCore {
 
     var eventLoop: EventLoop
     var closePromise: EventLoopPromise<Void>
-    var error: Error?
+    var error: Optional<Error>
 
     private let pipeline: ChannelPipeline
 
@@ -164,6 +176,7 @@ class EmbeddedChannelCore: ChannelCore {
         closePromise = eventLoop.makePromise()
         self.pipeline = pipeline
         self.eventLoop = eventLoop
+        self.error = nil
     }
 
     deinit {
@@ -271,6 +284,9 @@ class EmbeddedChannelCore: ChannelCore {
 /// actual IO nor has a proper eventing mechanism. The prime use-case for
 /// `EmbeddedChannel` is in unit tests when you want to feed the inbound events
 /// and check the outbound events manually.
+///
+/// Please remember to call `finish()` when you are no longer using this
+/// `EmbeddedChannel`.
 ///
 /// To feed events through an `EmbeddedChannel`'s `ChannelPipeline` use
 /// `EmbeddedChannel.writeInbound` which accepts data of any type. It will then
@@ -391,15 +407,23 @@ public final class EmbeddedChannel: Channel {
 
     /// Synchronously closes the `EmbeddedChannel`.
     ///
-    /// This method will throw if the `Channel` hit any unconsumed errors or if the `close` fails. Errors in the
-    /// `EmbeddedChannel` can be consumed using `throwIfErrorCaught`.
+    /// Errors in the `EmbeddedChannel` can be consumed using `throwIfErrorCaught`.
     ///
+    /// - parameters:
+    ///     - acceptAlreadyClosed: Whether `finish` should throw if the `EmbeddedChannel` has been previously `close`d.
     /// - returns: The `LeftOverState` of the `EmbeddedChannel`. If all the inbound and outbound events have been
     ///            consumed (using `readInbound` / `readOutbound`) and there are no pending outbound events (unflushed
     ///            writes) this will be `.clean`. If there are any unconsumed inbound, outbound, or pending outbound
     ///            events, the `EmbeddedChannel` will returns those as `.leftOvers(inbound:outbound:pendingOutbound:)`.
-    public func finish() throws -> LeftOverState {
-        try close().wait()
+    public func finish(acceptAlreadyClosed: Bool) throws -> LeftOverState {
+        do {
+            try close().wait()
+        } catch let error as ChannelError {
+            guard error == .alreadyClosed && acceptAlreadyClosed else {
+                throw error
+            }
+        }
+        self.embeddedEventLoop.drainScheduledTasksByRunningAllCurrentlyScheduledTasks()
         self.embeddedEventLoop.run()
         try throwIfErrorCaught()
         let c = self.channelcore
@@ -410,6 +434,19 @@ public final class EmbeddedChannel: Channel {
                               outbound: c.outboundBuffer,
                               pendingOutbound: c.pendingOutboundBuffer.map { $0.0 })
         }
+    }
+
+    /// Synchronously closes the `EmbeddedChannel`.
+    ///
+    /// This method will throw if the `Channel` hit any unconsumed errors or if the `close` fails. Errors in the
+    /// `EmbeddedChannel` can be consumed using `throwIfErrorCaught`.
+    ///
+    /// - returns: The `LeftOverState` of the `EmbeddedChannel`. If all the inbound and outbound events have been
+    ///            consumed (using `readInbound` / `readOutbound`) and there are no pending outbound events (unflushed
+    ///            writes) this will be `.clean`. If there are any unconsumed inbound, outbound, or pending outbound
+    ///            events, the `EmbeddedChannel` will returns those as `.leftOvers(inbound:outbound:pendingOutbound:)`.
+    public func finish() throws -> LeftOverState {
+        return try self.finish(acceptAlreadyClosed: false)
     }
 
     private var _pipeline: ChannelPipeline!

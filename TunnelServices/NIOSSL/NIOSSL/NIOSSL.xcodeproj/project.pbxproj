@@ -33,6 +33,7 @@
 		565CBE4D238BF01400CF0A3A /* NIOTLS.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 565CBE4B238BF01400CF0A3A /* NIOTLS.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		565CBE6B238BF6EC00CF0A3A /* CNIOBoringSSL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 565CBE6A238BF6EC00CF0A3A /* CNIOBoringSSL.framework */; };
 		565CBE6C238BF6EC00CF0A3A /* CNIOBoringSSL.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 565CBE6A238BF6EC00CF0A3A /* CNIOBoringSSL.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D2CD8C8F243429DB00DEBCB6 /* UniversalBootstrapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CD8C8E243429DB00DEBCB6 /* UniversalBootstrapSupport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -77,6 +78,7 @@
 		565CBE1D238BEEDA00CF0A3A /* CNIOBoringSSLShims.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = CNIOBoringSSLShims.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		565CBE4B238BF01400CF0A3A /* NIOTLS.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = NIOTLS.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		565CBE6A238BF6EC00CF0A3A /* CNIOBoringSSL.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = CNIOBoringSSL.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2CD8C8E243429DB00DEBCB6 /* UniversalBootstrapSupport.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UniversalBootstrapSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,6 +134,7 @@
 				565CBDD9238BEE4100CF0A3A /* SSLPrivateKey.swift */,
 				565CBDDD238BEE4200CF0A3A /* SSLPublicKey.swift */,
 				565CBDD0238BEE4100CF0A3A /* TLSConfiguration.swift */,
+				D2CD8C8E243429DB00DEBCB6 /* UniversalBootstrapSupport.swift */,
 				565CBDC8238BEE2B00CF0A3A /* Info.plist */,
 			);
 			path = NIOSSL;
@@ -238,6 +241,7 @@
 				565CBDF1238BEE4200CF0A3A /* ByteBufferBIO.swift in Sources */,
 				565CBDED238BEE4200CF0A3A /* SSLCertificate.swift in Sources */,
 				565CBDE4238BEE4200CF0A3A /* SSLPKCS12Bundle.swift in Sources */,
+				D2CD8C8F243429DB00DEBCB6 /* UniversalBootstrapSupport.swift in Sources */,
 				565CBDE9238BEE4200CF0A3A /* IdentityVerification.swift in Sources */,
 				565CBDEC238BEE4200CF0A3A /* NIOSSLServerHandler.swift in Sources */,
 				565CBDE8238BEE4200CF0A3A /* LinuxCABundle.swift in Sources */,
@@ -395,6 +399,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = "arm64 arm64e armv7s";
 			};
 			name = Debug;
 		};
@@ -420,6 +425,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = "arm64 arm64e armv7s";
 			};
 			name = Release;
 		};

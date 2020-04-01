@@ -136,7 +136,7 @@ final class HTTP2StreamChannel: Channel, ChannelCore {
         self.streamID = streamID
         self.multiplexer = multiplexer
         self.windowManager = InboundWindowManager(targetSize: Int32(targetWindowSize))
-        self._isWritable = Atomic(value: true)
+        self._isWritable = .makeAtomic(value: true)
         self.state = .idle
         self.writabilityManager = StreamChannelFlowController(highWatermark: outboundBytesHighWatermark,
                                                               lowWatermark: outboundBytesLowWatermark,
@@ -169,10 +169,13 @@ final class HTTP2StreamChannel: Channel, ChannelCore {
         }
 
         f.whenFailure { (error: Error) in
-            if self.state != .idle {
-                self.closedWhileOpen()
-            } else {
+            switch self.state {
+            case .idle, .localActive, .closed:
+                // The stream isn't open on the network, nothing to close.
                 self.errorEncountered(error: error)
+            case .remoteActive, .active, .closing, .closingNeverActivated:
+                // In all of these states the stream is still on the network and we may need to take action.
+                self.closedWhileOpen()
             }
 
             promise?.fail(error)
@@ -302,7 +305,7 @@ final class HTTP2StreamChannel: Channel, ChannelCore {
         return self._isWritable.load()
     }
 
-    private let _isWritable: Atomic<Bool>
+    private let _isWritable: NIOAtomic<Bool>
 
     public var isActive: Bool {
         return self.state == .active || self.state == .closing || self.state == .localActive
@@ -551,11 +554,27 @@ private extension HTTP2StreamChannel {
         self.pendingReads = CircularBuffer(initialCapacity: 0)
     }
 
-    /// DinitialCapacityreads to the channel.
+    /// Deliver all pending reads to the channel.
     private func deliverPendingReads() {
         assert(self.isActive)
         while self.pendingReads.count > 0 {
-            self.pipeline.fireChannelRead(NIOAny(self.pendingReads.removeFirst()))
+            let frame = self.pendingReads.removeFirst()
+
+            let dataLength: Int?
+            if case .data(let data) = frame.payload {
+                dataLength = data.data.readableBytes
+            } else {
+                dataLength = nil
+            }
+
+            self.pipeline.fireChannelRead(NIOAny(frame))
+
+            if let size = dataLength, let increment = self.windowManager.bufferedFrameEmitted(size: size) {
+                let frame = HTTP2Frame(streamID: self.streamID, payload: .windowUpdate(windowSizeIncrement: increment))
+                self.receiveOutboundFrame(frame, promise: nil)
+                // This flush should really go away, but we need it for now until we sort out window management.
+                self.multiplexer.childChannelFlush()
+            }
         }
         self.pipeline.fireChannelReadComplete()
     }
@@ -596,8 +615,16 @@ internal extension HTTP2StreamChannel {
         }
 
         if self.unsatisfiedRead {
+            // We don't need to account for this frame in the window manager: it's being delivered
+            // straight into the pipeline.
             self.pipeline.fireChannelRead(NIOAny(frame))
         } else {
+            // Record the size of the frame so that when we receive a window update event our
+            // calculation on whether we emit a WINDOW_UPDATE frame is based on the bytes we have
+            // actually delivered into the pipeline.
+            if case .data(let dataPayload) = frame.payload {
+                self.windowManager.bufferedFrameReceived(size: dataPayload.data.readableBytes)
+            }
             self.pendingReads.append(frame)
         }
     }

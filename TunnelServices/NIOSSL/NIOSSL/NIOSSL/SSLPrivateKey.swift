@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=5.1) && compiler(<5.2)
+#if compiler(>=5.1) && compiler(<5.3)
 @_implementationOnly import CNIOBoringSSL
 #else
 import CNIOBoringSSL
@@ -147,7 +147,7 @@ public class NIOSSLPrivateKey {
                 // This annoying conditional binding is used to work around the fact that I cannot pass
                 // a variable to a function pointer argument.
                 if let callbackManager = callbackManager {
-                    return CNIOBoringSSL_PEM_read_PrivateKey(fileObject, nil, globalBoringSSLPassphraseCallback(buf:size:rwflag:u:), Unmanaged.passUnretained(callbackManager as AnyObject).toOpaque())
+                    return CNIOBoringSSL_PEM_read_PrivateKey(fileObject, nil, { globalBoringSSLPassphraseCallback(buf: $0, size: $1, rwflag: $2, u: $3) }, Unmanaged.passUnretained(callbackManager as AnyObject).toOpaque())
                 } else {
                     return CNIOBoringSSL_PEM_read_PrivateKey(fileObject, nil, nil, nil)
                 }
@@ -177,7 +177,7 @@ public class NIOSSLPrivateKey {
                     if let callbackManager = callbackManager {
                         // This annoying conditional binding is used to work around the fact that I cannot pass
                         // a variable to a function pointer argument.
-                        return CNIOBoringSSL_PEM_read_bio_PrivateKey(bio, nil, globalBoringSSLPassphraseCallback(buf:size:rwflag:u:), Unmanaged.passUnretained(callbackManager as AnyObject).toOpaque())
+                        return CNIOBoringSSL_PEM_read_bio_PrivateKey(bio, nil, { globalBoringSSLPassphraseCallback(buf: $0, size: $1, rwflag: $2, u: $3) }, Unmanaged.passUnretained(callbackManager as AnyObject).toOpaque())
                     } else {
                         return CNIOBoringSSL_PEM_read_bio_PrivateKey(bio, nil, nil, nil)
                     }
@@ -289,8 +289,57 @@ public class NIOSSLPrivateKey {
     }
 }
 
+
+// MARK:- Utilities
+extension NIOSSLPrivateKey {
+    /// Calls the given body function with a temporary buffer containing the DER-encoded bytes of this
+    /// private key. This function does allocate for these bytes, but there is no way to avoid doing so with the
+    /// X509 API in BoringSSL.
+    ///
+    /// The pointer provided to the closure is not valid beyond the lifetime of this method call.
+    private func withUnsafeDERBuffer<T>(_ body: (UnsafeRawBufferPointer) throws -> T) throws -> T {
+        guard let bio = CNIOBoringSSL_BIO_new(CNIOBoringSSL_BIO_s_mem()) else {
+            fatalError("Failed to malloc for a BIO handler")
+        }
+
+        defer {
+            CNIOBoringSSL_BIO_free(bio)
+        }
+
+        let rc = CNIOBoringSSL_i2d_PrivateKey_bio(bio, self.ref)
+        guard rc == 1 else {
+            let errorStack = BoringSSLError.buildErrorStack()
+            throw BoringSSLError.unknownError(errorStack)
+        }
+
+        var dataPtr: UnsafeMutablePointer<CChar>? = nil
+        let length = CNIOBoringSSL_BIO_get_mem_data(bio, &dataPtr)
+
+        guard let bytes = dataPtr.map({ UnsafeRawBufferPointer(start: $0, count: length) }) else {
+            fatalError("Failed to map bytes from a private key")
+        }
+
+        return try body(bytes)
+    }
+}
+
+
 extension NIOSSLPrivateKey: Equatable {
     public static func ==(lhs: NIOSSLPrivateKey, rhs: NIOSSLPrivateKey) -> Bool {
-        return CNIOBoringSSL_EVP_PKEY_cmp(lhs.ref, rhs.ref) != 0
+        // Annoyingly, EVP_PKEY_cmp does not have a traditional return value pattern. 1 means equal, 0 means non-equal,
+        // negative means error. Here we treat "error" as "not equal", because we have no error reporting mechanism from this call site,
+        // and anyway, BoringSSL considers "these keys aren't of the same type" to be an error, which is in my mind pretty ludicrous.
+        return CNIOBoringSSL_EVP_PKEY_cmp(lhs.ref, rhs.ref) == 1
+    }
+}
+
+
+extension NIOSSLPrivateKey: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        // Sadly, BoringSSL doesn't provide us with a nice key hashing function. We therefore have only two options:
+        // we can either serialize the key into DER and feed that into the hasher, or we can attempt to hash the key parameters directly.
+        // We could attempt the latter, but frankly it causes a lot of pain for minimal gain, so we don't bother. This incurs an allocation,
+        // but that's ok. We crash if we hit an error here, as there is no way to recover.
+        try! self.withUnsafeDERBuffer { hasher.combine(bytes: $0) }
     }
 }

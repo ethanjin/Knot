@@ -51,6 +51,14 @@ extension ByteBuffer {
         guard let range = self.rangeWithinReadableBytes(index: index, length: MemoryLayout<T>.size) else {
             return nil
         }
+
+        if T.self == UInt8.self {
+            assert(range.count == 1)
+            return self.withUnsafeReadableBytes { ptr in
+                ptr[range.startIndex] as! T
+            }
+        }
+
         return self.withUnsafeReadableBytes { ptr in
             var value: T = 0
             withUnsafeMutableBytes(of: &value) { valuePtr in
@@ -138,7 +146,7 @@ extension UInt32 {
 }
 
 /// Endianness refers to the sequential order in which bytes are arranged into larger numerical values when stored in
-/// 	memory or when transmitted over digital links.
+/// memory or when transmitted over digital links.
 public enum Endianness {
     /// The endianness of the machine running this program.
     public static let host: Endianness = hostEndianness0()
@@ -148,10 +156,10 @@ public enum Endianness {
         return number == number.bigEndian ? .big : .little
     }
 
-    /// big endian, the most significat byte (MSB) is at the lowest address
+    /// big endian, the most significant byte (MSB) is at the lowest address
     case big
 
-    /// little endian, the least significat byte (LSB) is at the lowest address
+    /// little endian, the least significant byte (LSB) is at the lowest address
     case little
 }
 

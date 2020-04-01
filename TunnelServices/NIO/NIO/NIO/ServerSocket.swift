@@ -53,8 +53,8 @@
     ///     - backlog: The backlog to use.
     /// - throws: An `IOError` if creation of the socket failed.
     func listen(backlog: Int32 = 128) throws {
-        try withUnsafeFileDescriptor { fd in
-            _ = try Posix.listen(descriptor: fd, backlog: backlog)
+        try withUnsafeHandle {
+            _ = try Posix.listen(descriptor: $0, backlog: backlog)
         }
     }
 
@@ -65,25 +65,18 @@
     /// - returns: A `Socket` once a new connection was established or `nil` if this `ServerSocket` is in non-blocking mode and there is no new connection that can be accepted when this method is called.
     /// - throws: An `IOError` if the operation failed.
     func accept(setNonBlocking: Bool = false) throws -> Socket? {
-        return try withUnsafeFileDescriptor { fd in
-            var acceptAddr = sockaddr_in()
-            var addrSize = socklen_t(MemoryLayout<sockaddr_in>.size)
-
-            let result = try withUnsafeMutablePointer(to: &acceptAddr) { (ptr) throws -> CInt? in
-                try ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { ptr in
-                    #if os(Linux)
-                    let flags: Int32
-                    if setNonBlocking {
-                        flags = Linux.SOCK_NONBLOCK
-                    } else {
-                        flags = 0
-                    }
-                    return try Linux.accept4(descriptor: fd, addr: ptr, len: &addrSize, flags: flags)
-                    #else
-                    return try Posix.accept(descriptor: fd, addr: ptr, len: &addrSize)
-                    #endif
-                }
+        return try withUnsafeHandle { fd in
+            #if os(Linux)
+            let flags: Int32
+            if setNonBlocking {
+                flags = Linux.SOCK_NONBLOCK
+            } else {
+                flags = 0
             }
+            let result = try Linux.accept4(descriptor: fd, addr: nil, len: nil, flags: flags)
+            #else
+            let result = try Posix.accept(descriptor: fd, addr: nil, len: nil)
+            #endif
 
             guard let fd = result else {
                 return nil

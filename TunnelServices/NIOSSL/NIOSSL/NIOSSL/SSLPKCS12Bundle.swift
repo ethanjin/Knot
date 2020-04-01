@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=5.1) && compiler(<5.2)
+#if compiler(>=5.1) && compiler(<5.3)
 @_implementationOnly import CNIOBoringSSL
 #else
 import CNIOBoringSSL
@@ -60,11 +60,7 @@ public struct NIOSSLPKCS12Bundle {
         // Successfully parsed, let's unpack. The key and cert are mandatory,
         // the ca stack is not.
         guard let actualCert = cert, let actualKey = pkey else {
-            // Free the pointers that we have.
-            cert.map { CNIOBoringSSL_X509_free($0) }
-            pkey.map { CNIOBoringSSL_EVP_PKEY_free($0) }
-            caCerts.map { CNIOBoringSSL_sk_X509_pop_free($0, CNIOBoringSSL_X509_free) }
-            throw NIOSSLError.unableToAllocateBoringSSLObject
+            fatalError("Failed to obtain cert and pkey from a PKC12 file")
         }
 
         let certStackSize = caCerts.map { CNIOBoringSSL_sk_X509_num($0) } ?? 0
@@ -209,7 +205,7 @@ extension Collection where Element == UInt8 {
 internal extension Optional where Wrapped: Collection, Wrapped.Element == UInt8 {
     func withSecureCString<T>(_ block: (UnsafePointer<Int8>?) throws -> T) throws -> T {
         if let `self` = self {
-            return try self.withSecureCString(block)
+            return try self.withSecureCString({ try block($0) })
         } else {
             return try block(nil)
         }

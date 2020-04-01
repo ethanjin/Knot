@@ -72,6 +72,11 @@
 		5694D8B4238BD18E0053EF0F /* ByteBuffer-int.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5694D879238BD18E0053EF0F /* ByteBuffer-int.swift */; };
 		5694D8DE238BD2860053EF0F /* NIOConcurrencyHelpers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5694D8DD238BD2860053EF0F /* NIOConcurrencyHelpers.framework */; platformFilter = ios; };
 		5694D8DF238BD2860053EF0F /* NIOConcurrencyHelpers.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5694D8DD238BD2860053EF0F /* NIOConcurrencyHelpers.framework */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D2F486352431CDFA008BEEC2 /* SelectableEventLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F486342431CDF9008BEEC2 /* SelectableEventLoop.swift */; };
+		D2F486372431CE10008BEEC2 /* SingleStepByteToMessageDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F486362431CE10008BEEC2 /* SingleStepByteToMessageDecoder.swift */; };
+		D2F4863A2431CE26008BEEC2 /* ThreadWindows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F486382431CE25008BEEC2 /* ThreadWindows.swift */; };
+		D2F4863B2431CE26008BEEC2 /* ThreadPosix.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F486392431CE25008BEEC2 /* ThreadPosix.swift */; };
+		D2F4863D2431CE31008BEEC2 /* UniversalBootstrapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F4863C2431CE31008BEEC2 /* UniversalBootstrapSupport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -157,6 +162,11 @@
 		5694D878238BD18E0053EF0F /* NIOCloseOnErrorHandler.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NIOCloseOnErrorHandler.swift; sourceTree = "<group>"; };
 		5694D879238BD18E0053EF0F /* ByteBuffer-int.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "ByteBuffer-int.swift"; sourceTree = "<group>"; };
 		5694D8DD238BD2860053EF0F /* NIOConcurrencyHelpers.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = NIOConcurrencyHelpers.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2F486342431CDF9008BEEC2 /* SelectableEventLoop.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SelectableEventLoop.swift; sourceTree = "<group>"; };
+		D2F486362431CE10008BEEC2 /* SingleStepByteToMessageDecoder.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SingleStepByteToMessageDecoder.swift; sourceTree = "<group>"; };
+		D2F486382431CE25008BEEC2 /* ThreadWindows.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ThreadWindows.swift; sourceTree = "<group>"; };
+		D2F486392431CE25008BEEC2 /* ThreadPosix.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ThreadPosix.swift; sourceTree = "<group>"; };
+		D2F4863C2431CE31008BEEC2 /* UniversalBootstrapSupport.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UniversalBootstrapSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -241,8 +251,10 @@
 				5694D856238BD18B0053EF0F /* RecvByteBufferAllocator.swift */,
 				5694D863238BD18D0053EF0F /* Resolver.swift */,
 				5694D86F238BD18E0053EF0F /* Selectable.swift */,
+				D2F486342431CDF9008BEEC2 /* SelectableEventLoop.swift */,
 				5694D86B238BD18D0053EF0F /* Selector.swift */,
 				5694D873238BD18E0053EF0F /* ServerSocket.swift */,
+				D2F486362431CE10008BEEC2 /* SingleStepByteToMessageDecoder.swift */,
 				5694D84A238BD18B0053EF0F /* Socket.swift */,
 				5694D862238BD18D0053EF0F /* SocketAddresses.swift */,
 				5694D854238BD18B0053EF0F /* SocketChannel.swift */,
@@ -250,7 +262,10 @@
 				5694D85A238BD18C0053EF0F /* SocketProtocols.swift */,
 				5694D859238BD18C0053EF0F /* System.swift */,
 				5694D84B238BD18B0053EF0F /* Thread.swift */,
+				D2F486392431CE25008BEEC2 /* ThreadPosix.swift */,
+				D2F486382431CE25008BEEC2 /* ThreadWindows.swift */,
 				5694D84E238BD18B0053EF0F /* TypeAssistedChannelHandler.swift */,
+				D2F4863C2431CE31008BEEC2 /* UniversalBootstrapSupport.swift */,
 				5694D871238BD18E0053EF0F /* Utilities.swift */,
 				5694D838238BCFCE0053EF0F /* Info.plist */,
 			);
@@ -365,6 +380,7 @@
 				5694D8A5238BD18E0053EF0F /* IntegerTypes.swift in Sources */,
 				5694D882238BD18E0053EF0F /* Linux.swift in Sources */,
 				5694D8A7238BD18E0053EF0F /* PipeChannel.swift in Sources */,
+				D2F486352431CDFA008BEEC2 /* SelectableEventLoop.swift in Sources */,
 				5694D87B238BD18E0053EF0F /* FileDescriptor.swift in Sources */,
 				5694D891238BD18E0053EF0F /* RecvByteBufferAllocator.swift in Sources */,
 				5694D8B3238BD18E0053EF0F /* NIOCloseOnErrorHandler.swift in Sources */,
@@ -388,10 +404,14 @@
 				5694D8A3238BD18E0053EF0F /* MulticastChannel.swift in Sources */,
 				5694D8B0238BD18E0053EF0F /* Bootstrap.swift in Sources */,
 				5694D89E238BD18E0053EF0F /* Resolver.swift in Sources */,
+				D2F4863B2431CE26008BEEC2 /* ThreadPosix.swift in Sources */,
 				5694D896238BD18E0053EF0F /* NIOAny.swift in Sources */,
 				5694D893238BD18E0053EF0F /* BaseSocket.swift in Sources */,
 				5694D87C238BD18E0053EF0F /* Codec.swift in Sources */,
 				5694D88A238BD18E0053EF0F /* GetaddrinfoResolver.swift in Sources */,
+				D2F486372431CE10008BEEC2 /* SingleStepByteToMessageDecoder.swift in Sources */,
+				D2F4863D2431CE31008BEEC2 /* UniversalBootstrapSupport.swift in Sources */,
+				D2F4863A2431CE26008BEEC2 /* ThreadWindows.swift in Sources */,
 				5694D8A0238BD18E0053EF0F /* FileHandle.swift in Sources */,
 				5694D87D238BD18E0053EF0F /* ChannelPipeline.swift in Sources */,
 				5694D885238BD18E0053EF0F /* Socket.swift in Sources */,
@@ -543,6 +563,10 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../CNIOAtomics/CNIOAtomics/",
+					"$(inherited)",
+				);
 				INFOPLIST_FILE = NIO/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
@@ -557,6 +581,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = "arm64 arm64e armv7s";
 			};
 			name = Debug;
 		};
@@ -569,6 +594,10 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../CNIOAtomics/CNIOAtomics/",
+					"$(inherited)",
+				);
 				INFOPLIST_FILE = NIO/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
@@ -582,6 +611,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = "arm64 arm64e armv7s";
 			};
 			name = Release;
 		};

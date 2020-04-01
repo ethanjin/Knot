@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 #ifdef __APPLE__
-#include "CNIODarwin.h"
+#include <CNIODarwin.h>
 #include <err.h>
 #include <sysexits.h>
 #include <stdlib.h>

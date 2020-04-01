@@ -14,6 +14,24 @@
 
 import CNIOAtomics
 
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS)
+import Darwin
+fileprivate func sys_sched_yield() {
+    pthread_yield_np()
+}
+#elseif os(Windows)
+import ucrt
+import WinSDK
+fileprivate func sys_sched_yield() {
+  Sleep(0)
+}
+#else
+import Glibc
+fileprivate func sys_sched_yield() {
+    _ = sched_yield()
+}
+#endif
+
 /// An atomic primitive object.
 ///
 /// Before using `UnsafeEmbeddedAtomic`, please consider whether your needs can be met by `Atomic` instead.
@@ -153,6 +171,7 @@ public struct UnsafeEmbeddedAtomic<T: AtomicPrimitive> {
 /// By necessity, all atomic values are references: after all, it makes no
 /// sense to talk about managing an atomic value when each time it's modified
 /// the thread that modified it gets a local copy!
+@available(*, deprecated, message:"please use NIOAtomic instead")
 public final class Atomic<T: AtomicPrimitive> {
     @usableFromInline
     internal let embedded: UnsafeEmbeddedAtomic<T>
@@ -366,6 +385,29 @@ extension UInt64: AtomicPrimitive {
     public static let atomic_store                = catmc_atomic_unsigned_long_long_store
 }
 
+#if os(Windows)
+extension Int: AtomicPrimitive {
+    public static let atomic_create               = catmc_atomic_intptr_t_create
+    public static let atomic_destroy              = catmc_atomic_intptr_t_destroy
+    public static let atomic_compare_and_exchange = catmc_atomic_intptr_t_compare_and_exchange
+    public static let atomic_add                  = catmc_atomic_intptr_t_add
+    public static let atomic_sub                  = catmc_atomic_intptr_t_sub
+    public static let atomic_exchange             = catmc_atomic_intptr_t_exchange
+    public static let atomic_load                 = catmc_atomic_intptr_t_load
+    public static let atomic_store                = catmc_atomic_intptr_t_store
+}
+
+extension UInt: AtomicPrimitive {
+    public static let atomic_create               = catmc_atomic_uintptr_t_create
+    public static let atomic_destroy              = catmc_atomic_uintptr_t_destroy
+    public static let atomic_compare_and_exchange = catmc_atomic_uintptr_t_compare_and_exchange
+    public static let atomic_add                  = catmc_atomic_uintptr_t_add
+    public static let atomic_sub                  = catmc_atomic_uintptr_t_sub
+    public static let atomic_exchange             = catmc_atomic_uintptr_t_exchange
+    public static let atomic_load                 = catmc_atomic_uintptr_t_load
+    public static let atomic_store                = catmc_atomic_uintptr_t_store
+}
+#else
 extension Int: AtomicPrimitive {
     public static let atomic_create               = catmc_atomic_long_create
     public static let atomic_destroy              = catmc_atomic_long_destroy
@@ -387,16 +429,19 @@ extension UInt: AtomicPrimitive {
     public static let atomic_load                 = catmc_atomic_unsigned_long_load
     public static let atomic_store                = catmc_atomic_unsigned_long_store
 }
+#endif
 
-/// `AtomicBox` is a heap-allocated box which allows atomic access to an instance of a Swift class.
+/// `AtomicBox` is a heap-allocated box which allows lock-free access to an instance of a Swift class.
 ///
-/// It behaves very much like `Atomic<T>` but for objects, maintaining the correct retain counts.
+/// - warning: The use of `AtomicBox` should be avoided because it requires an implementation of a spin-lock
+///            (more precisely a CAS loop) to operate correctly.
+@available(*, deprecated, message: "AtomicBox is deprecated without replacement because the original implementation doesn't work.")
 public final class AtomicBox<T: AnyObject> {
-    private let storage: Atomic<UInt>
+    private let storage: NIOAtomic<UInt>
 
     public init(value: T) {
         let ptr = Unmanaged<T>.passRetained(value)
-        self.storage = Atomic(value: UInt(bitPattern: ptr.toOpaque()))
+        self.storage = NIOAtomic.makeAtomic(value: UInt(bitPattern: ptr.toOpaque()))
     }
 
     deinit {
@@ -414,6 +459,10 @@ public final class AtomicBox<T: AnyObject> {
     /// details on atomic memory models, check the documentation for C11's
     /// `stdatomic.h`.
     ///
+    ///
+    /// - warning: The implementation of `exchange` contains a _Compare and Exchange loop_, ie. it may busy wait with
+    ///            100% CPU load.
+    ///
     /// - Parameter expected: The value that this object must currently hold for the
     ///     compare-and-swap to succeed.
     /// - Parameter desired: The new value that this object will hold if the compare
@@ -424,14 +473,25 @@ public final class AtomicBox<T: AnyObject> {
         return withExtendedLifetime(desired) {
             let expectedPtr = Unmanaged<T>.passUnretained(expected)
             let desiredPtr = Unmanaged<T>.passUnretained(desired)
+            let expectedPtrBits = UInt(bitPattern: expectedPtr.toOpaque())
+            let desiredPtrBits = UInt(bitPattern: desiredPtr.toOpaque())
 
-            if self.storage.compareAndExchange(expected: UInt(bitPattern: expectedPtr.toOpaque()),
-                                               desired: UInt(bitPattern: desiredPtr.toOpaque())) {
-                _ = desiredPtr.retain()
-                expectedPtr.release()
-                return true
-            } else {
-                return false
+            while true {
+                if self.storage.compareAndExchange(expected: expectedPtrBits, desired: desiredPtrBits) {
+                    if desiredPtrBits != expectedPtrBits {
+                        _ = desiredPtr.retain()
+                        expectedPtr.release()
+                    }
+                    return true
+                } else {
+                    let currentPtrBits = self.storage.load()
+                    if currentPtrBits == 0 || currentPtrBits == expectedPtrBits {
+                        sys_sched_yield()
+                        continue
+                    } else {
+                        return false
+                    }
+                }
             }
         }
     }
@@ -442,11 +502,30 @@ public final class AtomicBox<T: AnyObject> {
     /// more than that this operation is atomic: there is no guarantee that any other
     /// event will be ordered before or after this one.
     ///
+    /// - warning: The implementation of `exchange` contains a _Compare and Exchange loop_, ie. it may busy wait with
+    ///            100% CPU load.
+    ///
     /// - Parameter value: The new value to set this object to.
     /// - Returns: The value previously held by this object.
     public func exchange(with value: T) -> T {
         let newPtr = Unmanaged<T>.passRetained(value)
-        let oldPtrBits = self.storage.exchange(with: UInt(bitPattern: newPtr.toOpaque()))
+        let newPtrBits = UInt(bitPattern: newPtr.toOpaque())
+
+        // step 1: We need to actually CAS loop here to swap out a non-0 value with the new one.
+        var oldPtrBits: UInt = 0
+        while true {
+            let speculativeVal = self.storage.load()
+            guard speculativeVal != 0 else {
+                sys_sched_yield()
+                continue
+            }
+            if self.storage.compareAndExchange(expected: speculativeVal, desired: newPtrBits) {
+                oldPtrBits = speculativeVal
+                break
+            }
+        }
+
+        // step 2: After having gained 'ownership' of the old value, we can release the Unmanged.
         let oldPtr = Unmanaged<T>.fromOpaque(UnsafeRawPointer(bitPattern: oldPtrBits)!)
         return oldPtr.takeRetainedValue()
     }
@@ -457,11 +536,33 @@ public final class AtomicBox<T: AnyObject> {
     /// more than that this operation is atomic: there is no guarantee that any other
     /// event will be ordered before or after this one.
     ///
+    /// - warning: The implementation of `exchange` contains a _Compare and Exchange loop_, ie. it may busy wait with
+    ///            100% CPU load.
+    ///
     /// - Returns: The value of this object
     public func load() -> T {
-        let ptrBits = self.storage.load()
+        // step 1: We need to gain ownership of the value by successfully swapping 0 (marker value) in.
+        var ptrBits: UInt = 0
+        while true {
+            let speculativeVal = self.storage.load()
+            guard speculativeVal != 0 else {
+                sys_sched_yield()
+                continue
+            }
+            if self.storage.compareAndExchange(expected: speculativeVal, desired: 0) {
+                ptrBits = speculativeVal
+                break
+            }
+        }
+
+        // step 2: We now consumed a +1'd version of val, so we have all the time in the world to retain it.
         let ptr = Unmanaged<T>.fromOpaque(UnsafeRawPointer(bitPattern: ptrBits)!)
-        return ptr.takeUnretainedValue()
+        let value = ptr.takeUnretainedValue()
+
+        // step 3: Now, let's exchange it back into the store
+        let casWorked = self.storage.compareAndExchange(expected: 0, desired: ptrBits)
+        precondition(casWorked) // this _has_ to work because `0` means we own it exclusively.
+        return value
     }
 
     /// Atomically replaces the value of this object with `value`.
@@ -469,6 +570,9 @@ public final class AtomicBox<T: AnyObject> {
     /// This implementation uses a *relaxed* memory ordering. This guarantees nothing
     /// more than that this operation is atomic: there is no guarantee that any other
     /// event will be ordered before or after this one.
+    ///
+    /// - warning: The implementation of `exchange` contains a _Compare and Exchange loop_, ie. it may busy wait with
+    ///            100% CPU load.
     ///
     /// - Parameter value: The new value to set the object to.
     public func store(_ value: T) -> Void {
