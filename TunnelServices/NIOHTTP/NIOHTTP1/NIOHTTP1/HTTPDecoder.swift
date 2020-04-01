@@ -427,7 +427,7 @@ public typealias HTTPResponseDecoder = HTTPDecoder<HTTPClientResponsePart, HTTPC
 /// that reason, applications should try to ensure that the `HTTPRequestDecoder` *later* in the
 /// `ChannelPipeline` than the `HTTPResponseEncoder`.
 ///
-/// Rather than set this up manually, consider using `ChannelPipeline.addHTTPServerHandlers`.
+/// Rather than set this up manually, consider using `ChannelPipeline.configureHTTPServerPipeline`.
 public typealias HTTPRequestDecoder = HTTPDecoder<HTTPServerRequestPart, HTTPServerResponsePart>
 
 public enum HTTPDecoderKind {
@@ -705,6 +705,9 @@ extension HTTPParserError {
         case HPE_PAUSED:
             return .paused
         case HPE_UNKNOWN:
+            return .unknown
+        case HPE_INVALID_TRANSFER_ENCODING:
+            // The downside of enums here, we don't have a case for this. Map it to .unknown for now.
             return .unknown
         default:
             return nil
